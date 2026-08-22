@@ -2,6 +2,7 @@
 import '../styles/global.css';
 import { useTranslations, langFromUrl, localizedPath, LANGS, LANG_LABEL } from '../i18n';
 import Search from '../components/Search.astro';
+import ThemeToggle from '../components/ThemeToggle.astro';
 
 export interface Props {
   titulo: string;
@@ -42,6 +43,15 @@ const isActive = (p) => {
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script is:inline>
+    // Aplica o tema salvo antes da pintura, evitando flash de cor.
+    (function () {
+      try {
+        var t = localStorage.getItem('eh-theme');
+        if (t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <header class="site-header">
@@ -53,6 +63,7 @@ const isActive = (p) => {
             <a href={localizedPath(n.path, lang)} class={isActive(n.path) ? 'active' : ''}>{t(n.key)}</a>
           ))}
           <Search lang={lang} />
+          <ThemeToggle />
           <span class="lang-switch">
             {LANGS.map((l, i) => (
               <>
