@@ -12,6 +12,7 @@
   --crit: #f2545b;
   --violet: #a371f7;
   --cyan: #39c5cf;
+  --pink: #ec4899;
   --radius: 10px;
   --maxw: 1100px;
 }
@@ -30,6 +31,7 @@
   --crit: #cf222e;
   --violet: #8250df;
   --cyan: #1b7c83;
+  --pink: #bf3989;
 }
 
 * { box-sizing: border-box; }

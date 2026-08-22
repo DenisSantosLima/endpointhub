@@ -10,12 +10,14 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
    ============================================================ */
 
 const C = {
-  bg: "#0d1117", panel: "#161b22", panel2: "#1c232d", line: "#2a3441",
-  ink: "#e6edf3", dim: "#8b98a5", faint: "#5a6570",
-  crit: "#f2545b", warn: "#e3a008", info: "#3b82f6", ok: "#2ea043",
-  cyan: "#39c5cf", violet: "#a371f7", pink: "#ec4899",
+  bg: "var(--bg)", panel: "var(--panel)", panel2: "var(--panel2)", line: "var(--line)",
+  ink: "var(--ink)", dim: "var(--dim)", faint: "var(--faint)",
+  crit: "var(--crit)", warn: "var(--warn)", info: "var(--accent)", ok: "var(--ok)",
+  cyan: "var(--cyan)", violet: "var(--violet)", pink: "var(--pink)",
 };
-const DONUT = [C.info, C.warn, C.crit, C.ok, C.violet, C.cyan, C.pink, C.dim];
+// Cores dos gráficos (donuts): hex fixos — SVG fill não resolve var() de forma
+// confiável, e estas cores vivas funcionam sobre card em ambos os temas.
+const DONUT = ["#3b82f6", "#e3a008", "#f2545b", "#2ea043", "#a371f7", "#39c5cf", "#ec4899", "#8b98a5"];
 
 /* ---------- CSV parsing ---------- */
 function parseCSV(text, delim) {

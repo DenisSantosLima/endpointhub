@@ -10,10 +10,10 @@ import React, { useState, useMemo, useCallback, useRef } from "react";
    ============================================================ */
 
 const C = {
-  bg: "#0d1117", panel: "#161b22", panel2: "#1c232d", line: "#2a3441",
-  ink: "#e6edf3", dim: "#8b98a5", faint: "#5a6570",
-  crit: "#f2545b", warn: "#e3a008", info: "#3b82f6", ok: "#2ea043",
-  cyan: "#39c5cf", violet: "#a371f7",
+  bg: "var(--bg)", panel: "var(--panel)", panel2: "var(--panel2)", line: "var(--line)",
+  ink: "var(--ink)", dim: "var(--dim)", faint: "var(--faint)",
+  crit: "var(--crit)", warn: "var(--warn)", info: "var(--accent)", ok: "var(--ok)",
+  cyan: "var(--cyan)", violet: "var(--violet)",
 };
 const OS_COLOR = { Windows: C.info, macOS: C.dim, iOS: C.cyan, Android: C.ok, Linux: C.violet, Outro: C.faint };
 
