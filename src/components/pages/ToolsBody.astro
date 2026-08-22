@@ -1,0 +1,26 @@
+---
+import { useTranslations, langFromUrl, localizedPath } from '../../i18n';
+const lang = langFromUrl(Astro.url);
+const t = useTranslations(lang);
+const ferramentas = [
+  { path: '/ferramentas/saneamento', nome: 't.saneamento.nome', desc: 't.saneamento.desc', estado: 'ready' },
+  { path: '/ferramentas/analytics', nome: 't.analytics.nome', desc: 't.analytics.desc', estado: 'ready' },
+  { path: '#', nome: 't.cobertura.nome', desc: 't.cobertura.desc', estado: 'soon' },
+  { path: '#', nome: 't.duplicatas.nome', desc: 't.duplicatas.desc', estado: 'soon' },
+  { path: '#', nome: 't.scripts.nome', desc: 't.scripts.desc', estado: 'soon' },
+];
+---
+<p class="eyebrow">{t('tools.eyebrow')}</p>
+<h1>{t('tools.h1')}</h1>
+<p class="lead">{t('tools.lead')}</p>
+<div class="grid cols-2" style="margin-top:24px;">
+  {ferramentas.map((f) => (
+    <a class="card" href={f.path === '#' ? '#' : localizedPath(f.path, lang)} style={f.estado === 'soon' ? 'opacity:0.7; pointer-events:none;' : ''}>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong style="font-size:16px;">{t(f.nome)}</strong>
+        <span class={f.estado === 'ready' ? 'badge pill-ready' : 'badge pill-soon'}>{f.estado === 'ready' ? t('tools.ready') : t('tools.soon')}</span>
+      </div>
+      <p style="color:var(--dim); font-size:14px; margin:10px 0 0;">{t(f.desc)}</p>
+    </a>
+  ))}
+</div>

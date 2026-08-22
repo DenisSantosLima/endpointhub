@@ -1,0 +1,49 @@
+---
+import { getCollection } from 'astro:content';
+import { useTranslations, langFromUrl, localizedPath } from '../../i18n';
+const lang = langFromUrl(Astro.url);
+const t = useTranslations(lang);
+const artigos = (await getCollection('artigos', ({ data }) => !data.rascunho && data.lang === lang))
+  .sort((a, b) => b.data.data.valueOf() - a.data.data.valueOf()).slice(0, 3);
+const ferramentas = [
+  { path: '/ferramentas/saneamento', nome: 't.saneamento.nome', desc: 't.saneamento.desc', estado: 'ready' },
+  { path: '/ferramentas/analytics', nome: 't.analytics.nome', desc: 't.analytics.desc', estado: 'ready' },
+  { path: '/ferramentas', nome: 't.cobertura.nome', desc: 't.cobertura.desc', estado: 'soon' },
+  { path: '/ferramentas', nome: 't.duplicatas.nome', desc: 't.duplicatas.desc', estado: 'soon' },
+];
+---
+<section style="padding: 24px 0 8px;">
+  <p class="eyebrow">{t('home.eyebrow')}</p>
+  <h1>{t('home.h1')}</h1>
+  <p class="lead">{t('home.lead')}</p>
+  <div style="display:flex; gap:10px; margin-top:18px; flex-wrap:wrap;">
+    <a class="card" href={localizedPath('/ferramentas', lang)} style="padding:10px 16px; font-weight:600;">{t('home.cta.tools')} →</a>
+    <a class="card" href={localizedPath('/artigos', lang)} style="padding:10px 16px; font-weight:600;">{t('home.cta.articles')} →</a>
+  </div>
+</section>
+<h2>{t('home.tools')}</h2>
+<div class="grid cols-3">
+  {ferramentas.map((f) => (
+    <a class="card" href={localizedPath(f.path, lang)}>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong style="font-size:15px;">{t(f.nome)}</strong>
+        <span class={f.estado === 'ready' ? 'badge pill-ready' : 'badge pill-soon'}>{f.estado === 'ready' ? t('tools.ready') : t('tools.soon')}</span>
+      </div>
+      <p style="color:var(--dim); font-size:13.5px; margin:8px 0 0;">{t(f.desc)}</p>
+    </a>
+  ))}
+</div>
+{artigos.length > 0 && (
+  <>
+    <h2>{t('home.latest')}</h2>
+    <div class="grid cols-3">
+      {artigos.map((a) => (
+        <a class="card" href={localizedPath(`/artigos/${a.data.slug}`, lang)}>
+          <span class="tag">{a.data.categoria}</span>
+          <strong style="display:block; font-size:15px; margin:10px 0 6px;">{a.data.titulo}</strong>
+          <p style="color:var(--dim); font-size:13.5px; margin:0;">{a.data.resumo}</p>
+        </a>
+      ))}
+    </div>
+  </>
+)}

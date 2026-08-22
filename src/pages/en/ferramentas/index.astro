@@ -1,0 +1,7 @@
+---
+import Base from '../../../layouts/Base.astro';
+import ToolsBody from '../../../components/pages/ToolsBody.astro';
+import { useTranslations } from '../../../i18n';
+const t = useTranslations('en');
+---
+<Base titulo={t('nav.ferramentas')} descricao={t('tools.lead')}><ToolsBody /></Base>
