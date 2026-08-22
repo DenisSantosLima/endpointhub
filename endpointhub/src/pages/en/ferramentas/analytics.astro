@@ -1,0 +1,9 @@
+---
+import Base from '../../../layouts/Base.astro';
+import EndpointAnalytics from '../../../components/EndpointAnalytics.jsx';
+import { useTranslations } from '../../../i18n';
+const t = useTranslations('en');
+---
+<Base titulo={t('t.analytics.nome')} wide={true} descricao={t('t.analytics.desc')}>
+  <EndpointAnalytics client:only="react" lang="en" />
+</Base>

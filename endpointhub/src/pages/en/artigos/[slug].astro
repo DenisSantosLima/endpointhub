@@ -1,0 +1,36 @@
+---
+import Base from '../../../layouts/Base.astro';
+import { getCollection, render } from 'astro:content';
+import { useTranslations, localizedPath } from '../../../i18n';
+
+export async function getStaticPaths() {
+  const todos = await getCollection('artigos', ({ data }) => !data.rascunho);
+  return todos.filter((a) => a.data.lang === 'en').map((a) => ({
+    params: { slug: a.data.slug },
+    props: { artigo: a },
+  }));
+}
+const { artigo } = Astro.props;
+const lang = 'en';
+const t = useTranslations(lang);
+const { Content } = await render(artigo);
+const locale = lang === 'es' ? 'es-ES' : 'en-US';
+const fmt = (d) => new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'long', year: 'numeric' }).format(d);
+---
+<Base titulo={artigo.data.titulo} descricao={artigo.data.resumo}>
+  <article style="padding-top: 12px;">
+    <a href={localizedPath('/artigos', lang)} style="font-size:13px; color:var(--dim);">{t('articles.back')}</a>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:16px 0 4px;">
+      <span class="tag">{artigo.data.categoria}</span>
+      <span class="badge" style="border:none; background:none; color:var(--faint);">{artigo.data.nivel}</span>
+    </div>
+    <h1 style="margin:6px 0 10px;">{artigo.data.titulo}</h1>
+    <p class="lead">{artigo.data.resumo}</p>
+    <div class="meta-row" style="margin:12px 0 24px; padding-bottom:20px; border-bottom:1px solid var(--line);">
+      <span>{artigo.data.autor}</span><span>·</span><span>{fmt(artigo.data.data)}</span>
+      {artigo.data.tags.length > 0 && <span>·</span>}
+      {artigo.data.tags.map((tg) => <span class="tag">{tg}</span>)}
+    </div>
+    <div class="prose"><Content /></div>
+  </article>
+</Base>
