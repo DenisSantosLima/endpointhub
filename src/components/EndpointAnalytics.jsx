@@ -120,13 +120,20 @@ function KPI({ label, sub, value, pct, accent, bar }) {
   );
 }
 
-function Donut({ title, sub, data, center }) {
+function Donut({ title, sub, data, center, focus }) {
   const total = data.reduce((s, d) => s + d.value, 0);
+  const pct = (v) => total > 0 ? ((v / total) * 100).toFixed(1).replace(".", ",") : "0";
+  // Centro: fatia em foco (se informada), senão a maior fatia.
+  const focused = focus ? data.find((d) => d.name === focus) : null;
+  const biggest = data.reduce((m, d) => (d.value > (m?.value ?? -1) ? d : m), null);
+  const centerSlice = focused ?? biggest;
+  const centerLabel = center?.label ?? centerSlice?.name ?? "";
+  const centerPct = pct(centerSlice?.value ?? 0);
   return (
     <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 16 }}>
       <div style={{ fontSize: 14, fontWeight: 600 }}>{title}</div>
       {sub && <div style={{ fontSize: 11.5, color: C.faint, marginTop: 2, marginBottom: 4 }}>{sub}</div>}
-      <div style={{ position: "relative", height: 210 }}>
+      <div style={{ position: "relative", height: 200 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={62} outerRadius={90} paddingAngle={2} stroke="none">
@@ -134,18 +141,17 @@ function Donut({ title, sub, data, center }) {
             </Pie>
           </PieChart>
         </ResponsiveContainer>
-        {center && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
-            <div style={{ fontSize: 15, fontWeight: 700 }}>{center.label}</div>
-            <div style={{ fontSize: 12, color: C.dim }}>{center.value}</div>
-          </div>
-        )}
+        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none" }}>
+          <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1, color: C.ink }}>{centerPct}%</div>
+          <div style={{ fontSize: 11.5, color: C.dim, marginTop: 4 }}>{centerLabel}</div>
+        </div>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 8 }}>
         {data.map((d, i) => (
-          <span key={i} style={{ fontSize: 11, color: C.dim, display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: DONUT[i % DONUT.length] }} />
-            {d.name} <b style={{ color: C.ink }}>{d.value}</b>
+          <span key={i} style={{ fontSize: 11.5, color: C.dim, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: DONUT[i % DONUT.length], flexShrink: 0 }} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+            <span style={{ marginLeft: "auto", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{d.value} · <b style={{ color: C.ink }}>{pct(d.value)}%</b></span>
           </span>
         ))}
       </div>
@@ -280,10 +286,10 @@ export default function EndpointAnalytics() {
               <KPI label="Sem check-in" sub="Mais de 45 dias" value={A.over45} accent={C.dim} pct={`${A.over45} de ${A.N} no total`} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
-              <Donut title="Tipos de dispositivo" sub="Por sistema operacional" data={A.byOS} center={{ label: A.byOS[0]?.name, value: A.byOS[0]?.value }} />
-              <Donut title="Fabricante" sub="Manufacturer" data={A.byMfr} center={{ label: A.byMfr[0]?.name, value: A.byMfr[0]?.value }} />
-              <Donut title="Último check-in" sub="Janelas de tempo" data={A.byCheckin} center={{ label: "30+ dias", value: A.over30 }} />
-              <Donut title="Espaço em disco" sub="Menos de 10 GB livres" data={[{ name: "< 10 GB", value: A.low10 }, { name: "OK", value: A.N - A.low10 }]} center={{ label: "< 10 GB", value: A.low10 }} />
+              <Donut title="Tipos de dispositivo" sub="Por sistema operacional" data={A.byOS} />
+              <Donut title="Fabricante" sub="Manufacturer" data={A.byMfr} />
+              <Donut title="Último check-in" sub="Janelas de tempo" data={A.byCheckin} />
+              <Donut title="Espaço em disco" sub="Menos de 10 GB livres" data={[{ name: "< 10 GB", value: A.low10 }, { name: "OK", value: A.N - A.low10 }]} focus="< 10 GB" />
             </div>
             <DataTable title="Dispositivos com pouco disco" sub="Menos de 20% de espaço livre, ordenados pelos mais críticos"
               cols={[{ k: "name", h: "Device" }, { k: "upn", h: "UPN" }, { k: "totalGB", h: "Total (GB)" }, { k: "freeGB", h: "Livre (GB)" }, { k: "pct", h: "% livre" }]}
@@ -298,9 +304,9 @@ export default function EndpointAnalytics() {
               <KPI label="Non-compliant" sub="Fora de conformidade" value={A.nonComp} accent={C.warn} bar={(A.nonComp / A.N) * 100} pct={`${A.nonComp} de ${A.N} · ${pctOf(A.nonComp)}`} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
-              <Donut title="Conformidade" sub="Compliant vs Noncompliant" data={A.byComp} center={{ label: "Compliant", value: A.N - A.nonComp }} />
-              <Donut title="Por plataforma" sub="Distribuição por OS" data={A.byOS} center={{ label: A.byOS[0]?.name, value: A.byOS[0]?.value }} />
-              <Donut title="Propriedade" sub="Corporate vs Personal" data={A.byOwnership} center={{ label: A.byOwnership[0]?.name, value: A.byOwnership[0]?.value }} />
+              <Donut title="Conformidade" sub="Compliant vs Noncompliant" data={A.byComp} />
+              <Donut title="Por plataforma" sub="Distribuição por OS" data={A.byOS} />
+              <Donut title="Propriedade" sub="Corporate vs Personal" data={A.byOwnership} />
             </div>
             <DataTable title="Dispositivos não conformes" sub="Lista dos Noncompliant para ação"
               cols={[{ k: "name", h: "Device" }, { k: "upn", h: "UPN" }, { k: "os", h: "OS" }, { k: "osver", h: "Versão" }, { k: "own", h: "Ownership" }, { k: "last", h: "Últ. check-in", r: (v) => (v || "").slice(0, 10) }]}
@@ -316,10 +322,10 @@ export default function EndpointAnalytics() {
               <KPI label="Supervisionados" sub="Supervised = true" value={A.bySupervised.find((x) => x.name === "Supervisionado")?.value || 0} accent={C.info} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
-              <Donut title="Criptografia" sub="Encrypted" data={[{ name: "Criptografado", value: A.enc }, { name: "Não", value: A.N - A.enc }]} center={{ label: `${((A.enc / A.N) * 100).toFixed(0)}%`, value: "criptografados" }} />
-              <Donut title="Propriedade" sub="Ownership" data={A.byOwnership} center={{ label: A.byOwnership[0]?.name, value: A.byOwnership[0]?.value }} />
-              <Donut title="Supervisão" sub="Supervised" data={A.bySupervised} center={{ label: A.bySupervised[0]?.name?.slice(0, 12), value: A.bySupervised[0]?.value }} />
-              <Donut title="Tipo de join" sub="JoinType" data={A.byJoin} center={{ label: A.byJoin[0]?.name?.slice(0, 14), value: A.byJoin[0]?.value }} />
+              <Donut title="Criptografia" sub="Encrypted" data={[{ name: "Criptografado", value: A.enc }, { name: "Não", value: A.N - A.enc }]} />
+              <Donut title="Propriedade" sub="Ownership" data={A.byOwnership} />
+              <Donut title="Supervisão" sub="Supervised" data={A.bySupervised} />
+              <Donut title="Tipo de join" sub="JoinType" data={A.byJoin} />
             </div>
             <DataTable title="Dispositivos não criptografados" sub="Status de criptografia — priorize a remediação"
               cols={[{ k: "name", h: "Device" }, { k: "upn", h: "UPN" }, { k: "os", h: "OS" }, { k: "osver", h: "Versão" }, { k: "enc", h: "Criptografado" }, { k: "comp", h: "Compliance" }]}
@@ -335,8 +341,8 @@ export default function EndpointAnalytics() {
               ))}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 12 }}>
-              <Donut title="Sistemas operacionais" sub="Distribuição por OS" data={A.byOS} center={{ label: A.byOS[0]?.name, value: A.byOS[0]?.value }} />
-              <Donut title="Versões de OS" sub="Top versões (agrupadas)" data={A.byOSVer} center={{ label: "Versões", value: A.byOSVer.length }} />
+              <Donut title="Sistemas operacionais" sub="Distribuição por OS" data={A.byOS} />
+              <Donut title="Versões de OS" sub="Top versões (agrupadas)" data={A.byOSVer} />
             </div>
             <DataTable title="Versões de sistema operacional" sub="Contagem por versão exata"
               cols={[{ k: "name", h: "Versão de OS" }, { k: "value", h: "Dispositivos" }]}
