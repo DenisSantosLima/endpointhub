@@ -78,6 +78,20 @@ function analyze(devices) {
   const encByOS = {};
   devices.forEach((x) => { const o = osNorm(x["OS"]); if (!encByOS[o]) encByOS[o] = { enc: 0, total: 0 }; encByOS[o].total++; if (x["Encrypted"] === "True") encByOS[o].enc++; });
 
+  const rowBase = (x) => {
+    const lastRaw = x["Last check-in"] || "";
+    const lastDate = new Date(lastRaw);
+    const dias = isNaN(lastDate) ? null : Math.floor((now - lastDate) / 864e5);
+    return {
+      name: x["Device name"], serial: x["Serial number"] || "—",
+      upn: x["Primary user UPN"], os: osNorm(x["OS"]), osver: x["OS version"],
+      owner: x["Ownership"] || "—", comp: x["Compliance"] || "—",
+      enc: x["Encrypted"] || "—", last: lastRaw ? lastRaw.slice(0, 10) : "—", dias,
+    };
+  };
+  const allDevices = devices.map(rowBase).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const noCheckin45 = devices.filter((x) => daysSince(x) > 45).map(rowBase).sort((a, b) => (b.dias || 0) - (a.dias || 0));
+
   const notEncrypted = devices.filter((x) => x["Encrypted"] !== "True").map((x) => {
     const lastRaw = x["Last check-in"] || "";
     const lastDate = new Date(lastRaw);
@@ -106,20 +120,25 @@ function analyze(devices) {
     byOS: toPairs(byOS), byMfr: toPairs(byMfr, 6), byCheckin: toPairs(byCheckin),
     byOwnership: toPairs(byOwnership), bySupervised: toPairs(bySupervised), byJoin: toPairs(byJoin),
     byOSVer: toPairs(byOSVer, 8), byComp: toPairs(byComp), encByOS,
-    notEncrypted, nonCompliant, lowDisk,
+    notEncrypted, nonCompliant, lowDisk, allDevices, noCheckin45,
   };
 }
 
 /* ---------- UI helpers ---------- */
-function KPI({ label, sub, value, pct, accent, bar }) {
+function KPI({ label, sub, value, pct, accent, bar, onClick }) {
   return (
-    <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 16, flex: 1, minWidth: 200 }}>
+    <div onClick={onClick} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 16, flex: 1, minWidth: 200, cursor: onClick ? "pointer" : "default", transition: "border-color .15s" }}
+      onMouseEnter={(e) => { if (onClick) e.currentTarget.style.borderColor = "#3a4655"; }}
+      onMouseLeave={(e) => { if (onClick) e.currentTarget.style.borderColor = C.line; }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 600 }}>{label}</div>
           {sub && <div style={{ fontSize: 11.5, color: C.faint, marginTop: 2, maxWidth: 200 }}>{sub}</div>}
         </div>
-        <div style={{ fontSize: 34, fontWeight: 700, color: accent || C.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{value}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ fontSize: 34, fontWeight: 700, color: accent || C.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{value}</div>
+          {onClick && <span style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>↗</span>}
+        </div>
       </div>
       {bar != null && (
         <div style={{ marginTop: 14 }}>
@@ -211,6 +230,87 @@ function DataTable({ title, sub, cols, rows, filter, setFilter }) {
   );
 }
 
+
+/* ---- KPI Modal ---- */
+function exportCSV(rows, cols, title) {
+  const header = cols.map((c) => c.h).join(',');
+  const body = rows.map((r) => cols.map((c) => {
+    const v = c.r ? c.r(r[c.k]) : (r[c.k] ?? '');
+    return `"${String(v).replace(/"/g, '""')}"`;
+  }).join(',')).join('\n');
+  const blob = new Blob([header + '\n' + body], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url;
+  a.download = `${title.replace(/\s+/g, '_')}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function KpiModal({ modal, onClose }) {
+  const [filter, setFilter] = React.useState('');
+  React.useEffect(() => { setFilter(''); }, [modal]);
+  React.useEffect(() => {
+    if (!modal) return;
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [modal, onClose]);
+  if (!modal) return null;
+  const { title, sub, rows, cols } = modal;
+  const filtered = rows.filter((r) => !filter || Object.values(r).some((v) => String(v).toLowerCase().includes(filter.toLowerCase())));
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '60px 24px 24px', overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, width: '100%', maxWidth: 1200, boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid ${C.line}` }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{title}</div>
+            {sub && <div style={{ fontSize: 12.5, color: C.dim, marginTop: 2 }}>{sub}</div>}
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="filtrar…"
+              style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: '7px 12px', color: C.ink, fontSize: 12.5, width: 200, outline: 'none' }} />
+            <button onClick={() => exportCSV(filtered, cols, title)}
+              style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: '7px 14px', color: C.ink, fontSize: 12.5, cursor: 'pointer', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              ↓ Exportar CSV
+            </button>
+            <button onClick={onClose} aria-label="Fechar"
+              style={{ background: 'none', border: `1px solid ${C.line}`, borderRadius: 8, padding: '7px 12px', color: C.dim, fontSize: 16, cursor: 'pointer', lineHeight: 1 }}>✕</button>
+          </div>
+        </div>
+        <div style={{ overflowX: 'auto', maxHeight: '65vh', overflowY: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+              <tr>{cols.map((c) => (
+                <th key={c.k} style={{ textAlign: 'left', padding: '9px 14px', color: C.dim, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: `1px solid ${C.line}`, background: C.panel2, whiteSpace: 'nowrap' }}>{c.h}</th>
+              ))}</tr>
+            </thead>
+            <tbody>
+              {filtered.map((r, i) => (
+                <tr key={i} style={{ borderBottom: `1px solid ${C.line}` }}>
+                  {cols.map((c) => {
+                    const raw = r[c.k]; const val = c.r ? c.r(raw) : raw;
+                    let color = C.ink;
+                    if (c.k === 'enc') color = raw === 'True' ? C.ok : C.crit;
+                    if (c.k === 'comp') color = raw === 'Compliant' ? C.ok : C.warn;
+                    if (c.k === 'pct') color = raw < 10 ? C.crit : raw < 20 ? C.warn : C.ok;
+                    if (c.k === 'dias') color = raw == null ? C.faint : raw > 45 ? C.crit : raw > 30 ? C.warn : C.ok;
+                    return <td key={c.k} style={{ padding: '8px 14px', color, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{val ?? '—'}</td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {filtered.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: C.faint, fontSize: 13 }}>Nenhum registro.</div>}
+        </div>
+        <div style={{ padding: '10px 20px', borderTop: `1px solid ${C.line}`, fontSize: 12, color: C.faint, display: 'flex', justifyContent: 'space-between' }}>
+          <span>{filtered.length} de {rows.length} {filter ? 'registros filtrados' : 'registros'}</span>
+          <span>Clique fora ou ESC para fechar</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function Placeholder({ title, exportName, path }) {
   return (
     <div style={{ background: C.panel, border: `1px dashed ${C.line}`, borderRadius: 12, padding: "40px 24px", textAlign: "center", marginTop: 8 }}>
@@ -233,6 +333,9 @@ export default function EndpointAnalytics() {
   const [drag, setDrag] = useState(false);
   const [err, setErr] = useState("");
   const [tFilter, setTFilter] = useState("");
+  const [modal, setModal] = useState(null);
+  const openModal = useCallback((cfg) => setModal(cfg), []);
+  const closeModal = useCallback(() => setModal(null), []);
   const inputRef = useRef(null);
 
   const ingest = useCallback((fileList) => {
@@ -293,12 +396,42 @@ export default function EndpointAnalytics() {
 
         {A && tab === "Devices" && (
           <>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-              <KPI label="Dispositivos gerenciados" sub="Total no Intune" value={A.N} accent={C.ink} bar={100} pct={`Todos gerenciados por Intune`} />
-              <KPI label="Pouco espaço em disco" sub="Menos de 20% livre" value={A.lowPct} accent={C.warn} bar={(A.lowPct / A.N) * 100} pct={`${A.lowPct} de ${A.N} · ${pctOf(A.lowPct)}`} />
-              <KPI label="Criptografia" sub="Dispositivos criptografados" value={A.enc} accent={C.pink} bar={(A.enc / A.N) * 100} pct={`${A.enc} de ${A.N} · ${pctOf(A.enc)}`} />
-              <KPI label="Sem check-in" sub="Mais de 45 dias" value={A.over45} accent={C.dim} pct={`${A.over45} de ${A.N} no total`} />
-            </div>
+            {(() => {
+              const colsDevice = [
+                { k: "name", h: "Device" }, { k: "serial", h: "Serial" },
+                { k: "upn", h: "UPN" }, { k: "os", h: "OS" }, { k: "osver", h: "Versão" },
+                { k: "owner", h: "Ownership" }, { k: "comp", h: "Compliance" },
+                { k: "enc", h: "Criptografado" }, { k: "last", h: "Últ. check-in" },
+                { k: "dias", h: "Dias s/ check-in", r: (v) => v == null ? "—" : `${v}d` },
+              ];
+              const colsDisk = [
+                { k: "name", h: "Device" }, { k: "upn", h: "UPN" },
+                { k: "totalGB", h: "Total (GB)" }, { k: "freeGB", h: "Livre (GB)" },
+                { k: "pct", h: "% livre" },
+              ];
+              const colsNotEnc = [
+                { k: "name", h: "Device" }, { k: "serial", h: "Serial" }, { k: "upn", h: "UPN" },
+                { k: "os", h: "OS" }, { k: "osver", h: "Versão" }, { k: "last", h: "Últ. check-in" },
+                { k: "dias", h: "Dias s/ check-in", r: (v) => v == null ? "—" : `${v}d` },
+                { k: "enc", h: "Criptografado" }, { k: "comp", h: "Compliance" },
+              ];
+              return (
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+                  <KPI label="Dispositivos gerenciados" sub="Total no Intune" value={A.N} accent={C.ink} bar={100}
+                    pct="Todos gerenciados por Intune"
+                    onClick={() => openModal({ title: "Dispositivos gerenciados", sub: `${A.N} devices no Intune`, rows: A.allDevices, cols: colsDevice })} />
+                  <KPI label="Pouco espaço em disco" sub="Menos de 20% livre" value={A.lowPct} accent={C.warn} bar={(A.lowPct / A.N) * 100}
+                    pct={`${A.lowPct} de ${A.N} · ${pctOf(A.lowPct)}`}
+                    onClick={() => openModal({ title: "Pouco espaço em disco", sub: `${A.lowPct} devices com menos de 20% livre`, rows: A.lowDisk, cols: colsDisk })} />
+                  <KPI label="Criptografia" sub="Não criptografados" value={A.N - A.enc} accent={C.crit}
+                    pct={`${A.N - A.enc} de ${A.N} sem encryption`}
+                    onClick={() => openModal({ title: "Não criptografados", sub: `${A.notEncrypted.length} devices sem encryption — priorize a remediação`, rows: A.notEncrypted, cols: colsNotEnc })} />
+                  <KPI label="Sem check-in" sub="Mais de 45 dias" value={A.over45} accent={C.crit}
+                    pct={`${A.over45} de ${A.N} no total`}
+                    onClick={() => openModal({ title: "Sem check-in há 45+ dias", sub: `${A.over45} devices inativos — validar se ainda em uso`, rows: A.noCheckin45, cols: colsDevice })} />
+                </div>
+              );
+            })()}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
               <Donut title="Tipos de dispositivo" sub="Por sistema operacional" data={A.byOS} />
               <Donut title="Fabricante" sub="Manufacturer" data={A.byMfr} />
@@ -382,6 +515,7 @@ export default function EndpointAnalytics() {
           <Placeholder title="Windows Update" exportName="relatório do Windows Update for Business (Feature/Quality update)" path="Intune → Reports → Windows updates → Export" />
         )}
       </div>
+      <KpiModal modal={modal} onClose={closeModal} />
     </div>
   );
 }
