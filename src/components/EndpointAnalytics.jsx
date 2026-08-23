@@ -78,9 +78,22 @@ function analyze(devices) {
   const encByOS = {};
   devices.forEach((x) => { const o = osNorm(x["OS"]); if (!encByOS[o]) encByOS[o] = { enc: 0, total: 0 }; encByOS[o].total++; if (x["Encrypted"] === "True") encByOS[o].enc++; });
 
-  const notEncrypted = devices.filter((x) => x["Encrypted"] !== "True").map((x) => ({
-    name: x["Device name"], upn: x["Primary user UPN"], os: x["OS"], osver: x["OS version"], enc: x["Encrypted"], comp: x["Compliance"],
-  }));
+  const notEncrypted = devices.filter((x) => x["Encrypted"] !== "True").map((x) => {
+    const lastRaw = x["Last check-in"] || "";
+    const lastDate = new Date(lastRaw);
+    const dias = isNaN(lastDate) ? null : Math.floor((now - lastDate) / 864e5);
+    return {
+      name: x["Device name"],
+      serial: x["Serial number"] || "—",
+      upn: x["Primary user UPN"],
+      os: x["OS"],
+      osver: x["OS version"],
+      enc: x["Encrypted"],
+      comp: x["Compliance"],
+      last: lastRaw ? lastRaw.slice(0, 10) : "—",
+      dias,
+    };
+  });
   const nonCompliant = devices.filter((x) => x["Compliance"] === "Noncompliant").map((x) => ({
     name: x["Device name"], upn: x["Primary user UPN"], os: osNorm(x["OS"]), osver: x["OS version"], own: x["Ownership"], last: x["Last check-in"],
   }));
@@ -185,6 +198,7 @@ function DataTable({ title, sub, cols, rows, filter, setFilter }) {
                   if (c.k === "enc") color = raw === "True" ? C.ok : C.crit;
                   if (c.k === "comp") color = raw === "Compliant" ? C.ok : C.warn;
                   if (c.k === "pct") color = raw < 10 ? C.crit : raw < 20 ? C.warn : C.ink;
+                  if (c.k === "dias") color = raw == null ? C.faint : raw > 45 ? C.crit : raw > 30 ? C.warn : C.ok;
                   return <td key={c.k} style={{ padding: "8px 12px", color, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{val ?? "—"}{c.k === "pct" ? "%" : ""}</td>;
                 })}
               </tr>
@@ -328,7 +342,17 @@ export default function EndpointAnalytics() {
               <Donut title="Tipo de join" sub="JoinType" data={A.byJoin} />
             </div>
             <DataTable title="Dispositivos não criptografados" sub="Status de criptografia — priorize a remediação"
-              cols={[{ k: "name", h: "Device" }, { k: "upn", h: "UPN" }, { k: "os", h: "OS" }, { k: "osver", h: "Versão" }, { k: "enc", h: "Criptografado" }, { k: "comp", h: "Compliance" }]}
+              cols={[
+                { k: "name", h: "Device" },
+                { k: "serial", h: "Serial" },
+                { k: "upn", h: "UPN" },
+                { k: "os", h: "OS" },
+                { k: "osver", h: "Versão" },
+                { k: "last", h: "Últ. check-in" },
+                { k: "dias", h: "Dias s/ check-in", r: (v) => v == null ? "—" : v > 45 ? `${v}d ⚠` : `${v}d` },
+                { k: "enc", h: "Criptografado" },
+                { k: "comp", h: "Compliance" },
+              ]}
               rows={A.notEncrypted} filter={tFilter} setFilter={setTFilter} />
           </>
         )}
