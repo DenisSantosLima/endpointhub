@@ -53,7 +53,7 @@ a:hover { text-decoration: underline; }
 ::-webkit-scrollbar-thumb:hover { background: #3a4655; }
 
 .container { max-width: var(--maxw); margin: 0 auto; padding: 0 clamp(16px, 3vw, 32px); }
-.wide { max-width: 1600px; }
+.wide { max-width: 100%; padding-left: 24px; padding-right: 24px; }
 
 /* Cabeçalho / nav */
 .site-header {

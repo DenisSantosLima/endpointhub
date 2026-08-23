@@ -240,8 +240,8 @@ export default function EndpointAnalytics() {
   const pctOf = (n) => A ? `${((n / A.N) * 100).toFixed(1)}%` : "";
 
   return (
-    <div style={{ background: C.bg, color: C.ink, minHeight: "100vh", fontFamily: "'Inter', system-ui, sans-serif", padding: "28px clamp(16px, 3vw, 40px)" }}>
-      <div style={{ maxWidth: 1600, margin: "0 auto" }}>
+    <div style={{ color: C.ink, fontFamily: "'Inter', system-ui, sans-serif", padding: "8px 0 40px" }}>
+      <div>
 
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
           <div>
