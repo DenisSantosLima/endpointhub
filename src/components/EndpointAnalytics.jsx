@@ -50,6 +50,77 @@ const num = (s) => { const n = parseFloat(String(s).replace(",", ".")); return i
 const gb = (mb) => mb / 1024;
 function osNorm(o) { o = (o || "").toLowerCase(); if (o.includes("ios") || o.includes("ipad")) return "iOS/iPadOS"; if (o.includes("android")) return "Android"; if (o.includes("mac")) return "macOS"; if (o.includes("windows")) return "Windows"; return "Outro"; }
 
+/* Converte versão técnica para nome legível:
+   Windows: 10.0.26200.x → Win 11 25H2 · 10.0.26100.x → Win 11 24H2 · etc.
+   macOS:   26.x → Tahoe · 15.x → Sequoia · 14.x → Sonoma · 13.x → Ventura
+   iOS:     26.x → iOS 26 · 18.x → iOS 18 · etc.
+   Android: número direto */
+function buildLabel(osRaw, ver) {
+  const os = (osRaw || "").toLowerCase();
+  const v = (ver || "").trim();
+  if (!v) return v;
+
+  if (os.includes("windows")) {
+    // formato 10.0.BBBBB.RRRRR
+    const m = v.match(/^10\.0\.(\d+)\.\d+$/);
+    if (m) {
+      const build = parseInt(m[1], 10);
+      const channel = build >= 26200 ? "Win 11 25H2"
+        : build >= 26100 ? "Win 11 24H2"
+        : build >= 22631 ? "Win 11 23H2"
+        : build >= 22621 ? "Win 11 22H2"
+        : build >= 22000 ? "Win 11 21H2"
+        : build >= 19045 ? "Win 10 22H2"
+        : build >= 19044 ? "Win 10 21H2"
+        : build >= 19043 ? "Win 10 21H1"
+        : build >= 19042 ? "Win 10 20H2"
+        : null;
+      return channel ? `${channel} (${build})` : v;
+    }
+    return v;
+  }
+
+  if (os.includes("mac")) {
+    // formato "26.5.2 (25F84)" ou "15.7.4 (24G517)"
+    const major = parseInt(v.split(".")[0], 10);
+    const codename = major >= 27 ? "macOS 27"
+      : major === 26 ? "macOS Tahoe"
+      : major === 15 ? "macOS Sequoia"
+      : major === 14 ? "macOS Sonoma"
+      : major === 13 ? "macOS Ventura"
+      : major === 12 ? "macOS Monterey"
+      : major === 11 ? "macOS Big Sur"
+      : null;
+    return codename ? `${codename} ${v}` : v;
+  }
+
+  if (os.includes("ios") || os.includes("ipad")) {
+    const major = parseInt(v.split(".")[0], 10);
+    const name = major >= 27 ? "iOS/iPadOS 27"
+      : major === 26 ? "iOS/iPadOS 26"
+      : major === 18 ? "iOS/iPadOS 18"
+      : major === 17 ? "iOS/iPadOS 17"
+      : major === 16 ? "iOS/iPadOS 16"
+      : major === 15 ? "iOS/iPadOS 15"
+      : null;
+    return name ? `${name} (${v})` : v;
+  }
+
+  if (os.includes("android")) {
+    const major = parseInt(v.split(".")[0], 10);
+    const name = major === 16 ? "Android 16"
+      : major === 15 ? "Android 15"
+      : major === 14 ? "Android 14"
+      : major === 13 ? "Android 13"
+      : major === 12 ? "Android 12"
+      : major === 11 ? "Android 11"
+      : null;
+    return name ? `${name} (${v})` : v;
+  }
+
+  return v;
+}
+
 /* ---------- Análise ---------- */
 function analyze(devices) {
   const N = devices.length;
@@ -73,7 +144,7 @@ function analyze(devices) {
   const byOwnership = count((x) => x["Ownership"] || "—");
   const bySupervised = count((x) => x["Supervised"] === "True" ? "Supervisionado" : "Não supervisionado");
   const byJoin = count((x) => x["JoinType"] || "—");
-  const byOSVer = count((x) => x["OS version"] || "—");
+  const byOSVer = count((x) => buildLabel(x["OS"] || "", x["OS version"] || "") || "—");
   const byComp = count((x) => x["Compliance"] || "—");
   const encByOS = {};
   devices.forEach((x) => { const o = osNorm(x["OS"]); if (!encByOS[o]) encByOS[o] = { enc: 0, total: 0 }; encByOS[o].total++; if (x["Encrypted"] === "True") encByOS[o].enc++; });
@@ -82,9 +153,13 @@ function analyze(devices) {
     const lastRaw = x["Last check-in"] || "";
     const lastDate = new Date(lastRaw);
     const dias = isNaN(lastDate) ? null : Math.floor((now - lastDate) / 864e5);
+    const osRaw = x["OS"] || "";
+    const verRaw = x["OS version"] || "";
     return {
       name: x["Device name"], serial: x["Serial number"] || "—",
-      upn: x["Primary user UPN"], os: osNorm(x["OS"]), osver: x["OS version"],
+      upn: x["Primary user UPN"], os: osNorm(osRaw),
+      osver: buildLabel(osRaw, verRaw),
+      osverRaw: verRaw,
       owner: x["Ownership"] || "—", comp: x["Compliance"] || "—",
       enc: x["Encrypted"] || "—", last: lastRaw ? lastRaw.slice(0, 10) : "—", dias,
     };
@@ -106,7 +181,8 @@ function analyze(devices) {
       serial: x["Serial number"] || "—",
       upn: x["Primary user UPN"],
       os: x["OS"],
-      osver: x["OS version"],
+      osver: buildLabel(x["OS"] || "", x["OS version"] || ""),
+      osverRaw: x["OS version"] || "",
       enc: x["Encrypted"],
       comp: x["Compliance"],
       last: lastRaw ? lastRaw.slice(0, 10) : "—",
@@ -114,7 +190,7 @@ function analyze(devices) {
     };
   });
   const nonCompliant = devices.filter((x) => x["Compliance"] === "Noncompliant").map((x) => ({
-    name: x["Device name"], upn: x["Primary user UPN"], os: osNorm(x["OS"]), osver: x["OS version"], own: x["Ownership"], last: x["Last check-in"],
+    name: x["Device name"], upn: x["Primary user UPN"], os: osNorm(x["OS"]), osver: buildLabel(x["OS"] || "", x["OS version"] || ""), own: x["Ownership"], last: (x["Last check-in"] || "").slice(0, 10),
   }));
   const lowDisk = devices.filter((x) => { const t = num(x["Total storage"]); return t > 0 && num(x["Free storage"]) / t < 0.20; })
     .map((x) => ({ name: x["Device name"], upn: x["Primary user UPN"], totalGB: Math.round(gb(num(x["Total storage"]))), freeGB: Math.round(gb(num(x["Free storage"]))), pct: Math.round(num(x["Free storage"]) / num(x["Total storage"]) * 100) }))
