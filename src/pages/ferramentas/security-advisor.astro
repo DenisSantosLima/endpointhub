@@ -1,0 +1,7 @@
+---
+import Base from '../../layouts/Base.astro';
+import SecurityAdvisor from '../../components/SecurityAdvisor.jsx';
+---
+<Base titulo="Security Advisor" wide={true} descricao="Recomendações e vulnerabilidades do Microsoft Defender — priorize e aja.">
+  <SecurityAdvisor client:only="react" />
+</Base>
