@@ -45,6 +45,10 @@ function isIntune(headers) {
   const s = new Set(headers.map((h) => h.trim()));
   return ['Serial number', 'Compliance', 'Encrypted', 'OS'].every((k) => s.has(k));
 }
+function isNonCompliant(headers) {
+  const s = new Set(headers.map((h) => h.trim()));
+  return ['SettingNm', 'PolicyName', 'SettingStatus', 'DeviceName'].every((k) => s.has(k));
+}
 
 const num = (s) => { const n = parseFloat(String(s).replace(",", ".")); return isNaN(n) ? 0 : n; };
 const gb = (mb) => mb / 1024;
@@ -327,6 +331,62 @@ function exportCSV(rows, cols, title) {
   URL.revokeObjectURL(url);
 }
 
+function ModalRow({ r, cols }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const hasReasons = r.reasons && r.reasons.length > 0;
+  return (
+    <>
+      <tr style={{ borderBottom: expanded ? 'none' : `1px solid ${C.line}`, background: expanded ? 'rgba(59,130,246,0.04)' : 'transparent' }}>
+        {cols.map((c) => {
+          const raw = r[c.k]; const val = c.r ? c.r(raw) : raw;
+          let color = C.ink;
+          if (c.k === 'enc') color = raw === 'True' ? C.ok : C.crit;
+          if (c.k === 'comp') color = raw === 'Compliant' ? C.ok : C.warn;
+          if (c.k === 'pct') color = raw < 10 ? C.crit : raw < 20 ? C.warn : C.ok;
+          if (c.k === 'dias') color = raw == null ? C.faint : raw > 45 ? C.crit : raw > 30 ? C.warn : C.ok;
+          if (c.k === '__reasons') {
+            return (
+              <td key="__reasons" style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
+                {hasReasons
+                  ? <button onClick={() => setExpanded(!expanded)}
+                      style={{ background: 'none', border: `1px solid ${C.line}`, borderRadius: 6, padding: '3px 8px', color: C.warn, fontSize: 11.5, cursor: 'pointer', fontWeight: 600 }}>
+                      {expanded ? '▼' : '▶'} {r.reasons.length} {r.reasons.length === 1 ? 'motivo' : 'motivos'}
+                    </button>
+                  : <span style={{ fontSize: 11.5, color: C.faint }}>—</span>}
+              </td>
+            );
+          }
+          return <td key={c.k} style={{ padding: '8px 14px', color, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{val ?? '—'}</td>;
+        })}
+      </tr>
+      {expanded && hasReasons && (
+        <tr style={{ borderBottom: `1px solid ${C.line}` }}>
+          <td colSpan={cols.length} style={{ padding: '0 14px 12px 32px' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', color: C.faint, fontWeight: 600, fontSize: 10, textTransform: 'uppercase', borderBottom: `1px solid ${C.line}`, background: C.panel2 }}>Política</th>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', color: C.faint, fontWeight: 600, fontSize: 10, textTransform: 'uppercase', borderBottom: `1px solid ${C.line}`, background: C.panel2 }}>Setting</th>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', color: C.faint, fontWeight: 600, fontSize: 10, textTransform: 'uppercase', borderBottom: `1px solid ${C.line}`, background: C.panel2 }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {r.reasons.map((rs, j) => (
+                  <tr key={j} style={{ borderBottom: j < r.reasons.length - 1 ? `1px solid ${C.line}` : 'none' }}>
+                    <td style={{ padding: '5px 10px', color: C.dim }}>{rs.policy}</td>
+                    <td style={{ padding: '5px 10px', color: C.ink, fontWeight: 500 }}>{rs.setting}</td>
+                    <td style={{ padding: '5px 10px', color: rs.status === 'Erro' ? C.crit : C.warn, fontWeight: 600 }}>{rs.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 function KpiModal({ modal, onClose }) {
   const [filter, setFilter] = React.useState('');
   React.useEffect(() => { setFilter(''); }, [modal]);
@@ -338,7 +398,16 @@ function KpiModal({ modal, onClose }) {
   }, [modal, onClose]);
   if (!modal) return null;
   const { title, sub, rows, cols } = modal;
+  const hasReasons = rows.some((r) => r.reasons && r.reasons.length > 0);
+  const effectiveCols = hasReasons && !cols.find((c) => c.k === '__reasons')
+    ? [...cols, { k: '__reasons', h: 'Motivos' }]
+    : cols;
   const filtered = rows.filter((r) => !filter || Object.values(r).some((v) => String(v).toLowerCase().includes(filter.toLowerCase())));
+  const exportRows = filtered.map((r) => ({
+    ...r,
+    motivos: (r.reasons || []).map((rs) => `${rs.policy}: ${rs.setting} (${rs.status})`).join('; '),
+  }));
+  const exportCols = [...cols.filter((c) => c.k !== '__reasons'), { k: 'motivos', h: 'Motivos' }];
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '60px 24px 24px', overflowY: 'auto' }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, width: '100%', maxWidth: 1200, boxShadow: '0 24px 60px rgba(0,0,0,0.5)' }}>
@@ -348,9 +417,12 @@ function KpiModal({ modal, onClose }) {
             {sub && <div style={{ fontSize: 12.5, color: C.dim, marginTop: 2 }}>{sub}</div>}
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {hasReasons && <span style={{ fontSize: 11.5, color: C.warn, background: 'rgba(227,160,8,0.1)', border: '1px solid rgba(227,160,8,0.3)', borderRadius: 6, padding: '4px 10px' }}>
+              ▶ clique em "motivos" para ver o detalhe
+            </span>}
             <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="filtrar…"
               style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: '7px 12px', color: C.ink, fontSize: 12.5, width: 200, outline: 'none' }} />
-            <button onClick={() => exportCSV(filtered, cols, title)}
+            <button onClick={() => exportCSV(exportRows, exportCols, title)}
               style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 8, padding: '7px 14px', color: C.ink, fontSize: 12.5, cursor: 'pointer', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               ↓ Exportar CSV
             </button>
@@ -361,24 +433,12 @@ function KpiModal({ modal, onClose }) {
         <div style={{ overflowX: 'auto', maxHeight: '65vh', overflowY: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-              <tr>{cols.map((c) => (
+              <tr>{effectiveCols.map((c) => (
                 <th key={c.k} style={{ textAlign: 'left', padding: '9px 14px', color: C.dim, fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: `1px solid ${C.line}`, background: C.panel2, whiteSpace: 'nowrap' }}>{c.h}</th>
               ))}</tr>
             </thead>
             <tbody>
-              {filtered.map((r, i) => (
-                <tr key={i} style={{ borderBottom: `1px solid ${C.line}` }}>
-                  {cols.map((c) => {
-                    const raw = r[c.k]; const val = c.r ? c.r(raw) : raw;
-                    let color = C.ink;
-                    if (c.k === 'enc') color = raw === 'True' ? C.ok : C.crit;
-                    if (c.k === 'comp') color = raw === 'Compliant' ? C.ok : C.warn;
-                    if (c.k === 'pct') color = raw < 10 ? C.crit : raw < 20 ? C.warn : C.ok;
-                    if (c.k === 'dias') color = raw == null ? C.faint : raw > 45 ? C.crit : raw > 30 ? C.warn : C.ok;
-                    return <td key={c.k} style={{ padding: '8px 14px', color, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{val ?? '—'}</td>;
-                  })}
-                </tr>
-              ))}
+              {filtered.map((r, i) => <ModalRow key={i} r={r} cols={effectiveCols} />)}
             </tbody>
           </table>
           {filtered.length === 0 && <div style={{ padding: 24, textAlign: 'center', color: C.faint, fontSize: 13 }}>Nenhum registro.</div>}
@@ -410,7 +470,9 @@ const TABS = ["Devices", "Applications", "Compliance", "Configuration", "Operati
 
 export default function EndpointAnalytics() {
   const [devices, setDevices] = useState([]);
+  const [ncSettings, setNcSettings] = useState([]);
   const [loaded, setLoaded] = useState(null);
+  const [loadedNc, setLoadedNc] = useState(null);
   const [tab, setTab] = useState("Devices");
   const [drag, setDrag] = useState(false);
   const [err, setErr] = useState("");
@@ -420,22 +482,66 @@ export default function EndpointAnalytics() {
   const closeModal = useCallback(() => setModal(null), []);
   const inputRef = useRef(null);
 
-  const ingest = useCallback((fileList) => {
-    const file = Array.from(fileList).find((f) => /\.csv$/i.test(f.name));
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
+  const readFile = (file) => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => rej(new Error("Falha ao ler " + file.name));
+    r.readAsText(file, "UTF-8");
+  });
+
+  const ingest = useCallback(async (fileList) => {
+    const csvFiles = Array.from(fileList).filter((f) => /\.csv$/i.test(f.name));
+    if (!csvFiles.length) return;
+    const errs = [];
+    for (const file of csvFiles) {
       try {
-        const { headers, data } = toObjects(reader.result);
-        if (!isIntune(headers)) { setErr(`"${file.name}" não parece um export de dispositivos do Intune (colunas esperadas ausentes).`); return; }
-        setErr(""); setDevices(data); setLoaded({ name: file.name, count: data.length });
-      } catch (e) { setErr("Falha ao ler o arquivo: " + e.message); }
-    };
-    reader.readAsText(file, "UTF-8");
+        const text = await readFile(file);
+        const { headers, data } = toObjects(text);
+        if (isIntune(headers)) {
+          setDevices(data);
+          setLoaded({ name: file.name, count: data.length });
+        } else if (isNonCompliant(headers)) {
+          setNcSettings(data);
+          setLoadedNc({ name: file.name, count: data.length });
+        } else {
+          errs.push(`"${file.name}": formato não reconhecido (esperado: export de Devices ou Noncompliant Settings).`);
+        }
+      } catch (e) { errs.push(e.message); }
+    }
+    setErr(errs.join(" | "));
   }, []);
   const onDrop = useCallback((e) => { e.preventDefault(); setDrag(false); ingest(e.dataTransfer.files); }, [ingest]);
 
-  const A = useMemo(() => (devices.length ? analyze(devices) : null), [devices]);
+  // Índice de motivos: { DeviceName -> [{setting, policy, status}] }
+  const ncIndex = useMemo(() => {
+    const idx = {};
+    ncSettings.forEach((r) => {
+      const dev = (r["DeviceName"] || "").trim();
+      if (!dev) return;
+      if (!idx[dev]) idx[dev] = [];
+      idx[dev].push({
+        setting: r["SettingNm_loc"] || r["SettingNm"] || "—",
+        policy: r["PolicyName"] || "—",
+        status: r["SettingStatus_loc"] || r["SettingStatus"] || "—",
+      });
+    });
+    return idx;
+  }, [ncSettings]);
+
+  const A = useMemo(() => {
+    if (!devices.length) return null;
+    const result = analyze(devices);
+    // Enriquecer nonCompliantList com motivos do ncIndex
+    result.nonCompliantList = result.nonCompliantList.map((d) => ({
+      ...d,
+      reasons: ncIndex[d.name] || [],
+    }));
+    result.nonCompliant = result.nonCompliant.map((d) => ({
+      ...d,
+      reasons: ncIndex[d.name] || [],
+    }));
+    return result;
+  }, [devices, ncIndex]);
   const pctOf = (n) => A ? `${((n / A.N) * 100).toFixed(1)}%` : "";
 
   return (
@@ -450,16 +556,35 @@ export default function EndpointAnalytics() {
           <div style={{ fontSize: 12, color: C.faint, textAlign: "right" }}>Export de dispositivos do Intune · processamento local</div>
         </div>
 
-        {/* Upload */}
+        {/* Upload — aceita múltiplos CSVs: Devices + Noncompliant Settings */}
         <div onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop} onClick={() => inputRef.current?.click()}
           style={{ marginTop: 20, border: `1.5px dashed ${drag ? C.info : C.line}`, background: drag ? "rgba(59,130,246,0.06)" : C.panel, borderRadius: 12, padding: "20px", cursor: "pointer" }}>
-          <input ref={inputRef} type="file" accept=".csv" style={{ display: "none" }} onChange={(e) => ingest(e.target.files)} />
+          <input ref={inputRef} type="file" accept=".csv" multiple style={{ display: "none" }} onChange={(e) => ingest(e.target.files)} />
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
             <div>
-              <div style={{ fontSize: 14, fontWeight: 600 }}>{drag ? "Solte o arquivo aqui" : "Arraste o export de dispositivos do Intune — ou clique"}</div>
-              <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>Devices → Export no Intune. Processamento 100% local — nenhum dado é enviado.</div>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{drag ? "Solte os arquivos aqui" : "Arraste os CSVs do Intune — ou clique para selecionar"}</div>
+              <div style={{ fontSize: 12, color: C.dim, marginTop: 4 }}>
+                Detecta automaticamente o tipo de cada arquivo. Processamento 100% local — nenhum dado é enviado.
+              </div>
             </div>
-            {loaded && <span style={{ fontSize: 12, color: C.dim, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 6, padding: "5px 10px" }}>{loaded.name} · <b style={{ color: C.ink }}>{loaded.count}</b> devices</span>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+              {loaded
+                ? <span style={{ fontSize: 12, color: C.ok, background: "rgba(46,160,67,0.1)", border: `1px solid rgba(46,160,67,0.3)`, borderRadius: 6, padding: "5px 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.ok }}></span>
+                    Devices · <b>{loaded.count}</b>
+                  </span>
+                : <span style={{ fontSize: 12, color: C.faint, border: `1px dashed ${C.line}`, borderRadius: 6, padding: "5px 10px" }}>
+                    ① Export de dispositivos
+                  </span>}
+              {loadedNc
+                ? <span style={{ fontSize: 12, color: C.ok, background: "rgba(46,160,67,0.1)", border: `1px solid rgba(46,160,67,0.3)`, borderRadius: 6, padding: "5px 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.ok }}></span>
+                    Noncompliant Settings · <b>{loadedNc.count}</b> registros
+                  </span>
+                : <span style={{ fontSize: 12, color: C.faint, border: `1px dashed ${C.line}`, borderRadius: 6, padding: "5px 10px" }}>
+                    ② Noncompliant devices and settings <span style={{ color: C.accent }}>(opcional)</span>
+                  </span>}
+            </div>
           </div>
           {err && <div style={{ marginTop: 10, fontSize: 12.5, color: C.crit }}>⚠ {err}</div>}
         </div>
