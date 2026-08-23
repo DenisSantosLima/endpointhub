@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef } from "react";
+import { getKB, KB_NAMES } from "../data/advisor-kb.js";
 
 /* ============================================================
    Security Advisor — EndpointHub
@@ -222,6 +223,219 @@ function Modal({ modal, onClose }) {
 
 const TABS = ["Resumo", "Recomendações", "Vulnerabilidades", "Com Exploit"];
 
+/* ---- Syntax highlight simples para code blocks ---- */
+function CodeBlock({ code, lang }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(code).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  };
+  return (
+    <div style={{ position: "relative", marginTop: 10 }}>
+      <div style={{ background: "#0d1117", border: `1px solid ${C.line}`, borderRadius: 8, padding: "14px 16px", fontFamily: "ui-monospace, 'Cascadia Code', monospace", fontSize: 12.5, lineHeight: 1.6, color: "#e6edf3", overflowX: "auto", whiteSpace: "pre" }}>
+        {code}
+      </div>
+      <button onClick={copy} style={{ position: "absolute", top: 8, right: 8, background: copied ? C.ok : C.panel2, border: `1px solid ${C.line}`, borderRadius: 6, padding: "3px 10px", fontSize: 11, color: copied ? "#fff" : C.dim, cursor: "pointer", fontWeight: 600 }}>
+        {copied ? "✓ Copiado" : "Copiar"}
+      </button>
+      {lang && <span style={{ position: "absolute", bottom: 8, right: 8, fontSize: 10, color: C.faint, textTransform: "uppercase", letterSpacing: 1 }}>{lang}</span>}
+    </div>
+  );
+}
+
+function MarkdownText({ text }) {
+  // Renderiza **bold**, `code inline` e quebras de linha
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  return (
+    <span>
+      {parts.map((p, i) => {
+        if (p.startsWith("**") && p.endsWith("**")) return <strong key={i}>{p.slice(2, -2)}</strong>;
+        if (p.startsWith("`") && p.endsWith("`")) return <code key={i} style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 5px", fontSize: "0.9em", fontFamily: "ui-monospace, monospace" }}>{p.slice(1, -1)}</code>;
+        return <span key={i}>{p.split("\n").map((line, j) => j === 0 ? line : <span key={j}><br />{line}</span>)}</span>;
+      })}
+    </span>
+  );
+}
+
+/* ---- Drawer de implementação ---- */
+function ImplementationDrawer({ rec, onClose }) {
+  const [activeMethod, setActiveMethod] = useState(0);
+  const [activeStep, setActiveStep] = useState(0);
+  const kb = rec ? getKB(rec.name) : null;
+
+  React.useEffect(() => {
+    if (!rec) return;
+    setActiveMethod(0);
+    setActiveStep(0);
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
+  }, [rec, onClose]);
+
+  if (!rec) return null;
+
+  const method = kb?.methods?.[activeMethod];
+  const step = method?.steps?.[activeStep];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 400, display: "flex" }}>
+      {/* Backdrop */}
+      <div onClick={onClose} style={{ flex: 1, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(2px)" }} />
+
+      {/* Drawer */}
+      <div style={{ width: "min(720px, 90vw)", background: C.panel, borderLeft: `1px solid ${C.line}`, display: "flex", flexDirection: "column", height: "100vh", overflowY: "auto", boxShadow: "-8px 0 32px rgba(0,0,0,0.4)" }}>
+
+        {/* Header */}
+        <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${C.line}`, position: "sticky", top: 0, background: C.panel, zIndex: 1 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.info, textTransform: "uppercase", letterSpacing: 1 }}>{rec.catGroup}</span>
+                <span style={{ fontSize: 11, color: C.faint }}>·</span>
+                <span style={{ fontSize: 11, color: C.faint }}>{rec.os || "all platforms"}</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: C.ok, marginLeft: 4 }}>{rec.impactRaw}</span>
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.3, color: C.ink }}>{rec.name}</div>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: `1px solid ${C.line}`, borderRadius: 8, padding: "6px 12px", color: C.dim, fontSize: 18, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>✕</button>
+          </div>
+          {rec.critical > 0 && (
+            <div style={{ marginTop: 10, background: "rgba(242,84,91,0.08)", border: "1px solid rgba(242,84,91,0.25)", borderRadius: 8, padding: "8px 12px", fontSize: 12.5, color: C.crit }}>
+              ⚠ <strong>{rec.critical} device{rec.critical > 1 ? "s" : ""} crítico{rec.critical > 1 ? "s" : ""}</strong> exposto{rec.critical > 1 ? "s" : ""} · {rec.exposed?.toLocaleString("pt-BR")} devices no total
+            </div>
+          )}
+        </div>
+
+        <div style={{ flex: 1, padding: "20px 24px" }}>
+
+          {/* Sem KB — view genérica */}
+          {!kb && (
+            <div style={{ textAlign: "center", padding: "40px 20px", color: C.faint }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: C.dim, marginBottom: 8 }}>Guia de implementação em construção</div>
+              <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
+                Esta recomendação ainda não tem guia passo a passo no EndpointHub.<br />
+                Consulte a documentação oficial do Microsoft Defender para os passos de remediação.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
+                <a href={`https://security.microsoft.com`} target="_blank" rel="noopener noreferrer"
+                  style={{ color: C.info, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                  ↗ Abrir no Microsoft Defender portal
+                </a>
+                <a href="https://learn.microsoft.com/en-us/defender-vulnerability-management/tvm-security-recommendation" target="_blank" rel="noopener noreferrer"
+                  style={{ color: C.info, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+                  ↗ Documentação de Security Recommendations
+                </a>
+              </div>
+              {/* dados do CSV */}
+              <div style={{ marginTop: 28, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 10, padding: 16, textAlign: "left" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: C.dim, marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Dados do Defender</div>
+                {[
+                  ["Impacto no score", rec.impactRaw],
+                  ["Categoria", rec.cat],
+                  ["OS platform", rec.os || "—"],
+                  ["Devices expostos", rec.exposed?.toLocaleString("pt-BR")],
+                  ["Devices críticos", rec.critical],
+                  ["Remediações abertas", rec.remediation],
+                  ["Tags", rec.tags || "—"],
+                ].map(([k, v]) => (
+                  <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${C.line}`, fontSize: 12.5 }}>
+                    <span style={{ color: C.faint }}>{k}</span>
+                    <span style={{ color: C.ink, fontWeight: 500 }}>{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Com KB */}
+          {kb && (
+            <>
+              {/* Resumo */}
+              <div style={{ background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+                <div style={{ fontSize: 13, color: C.dim, lineHeight: 1.65, marginBottom: 10 }}>{kb.summary}</div>
+                {kb.risk && (
+                  <div style={{ background: "rgba(227,160,8,0.08)", border: "1px solid rgba(227,160,8,0.25)", borderRadius: 7, padding: "8px 12px", fontSize: 12.5, color: C.warn }}>
+                    <strong>Risco:</strong> {kb.risk}
+                  </div>
+                )}
+              </div>
+
+              {/* Links */}
+              {kb.links?.length > 0 && (
+                <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+                  {kb.links.map((l, i) => (
+                    <a key={i} href={l.url} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: 12, color: C.info, border: `1px solid ${C.line}`, borderRadius: 6, padding: "4px 10px", textDecoration: "none", display: "flex", alignItems: "center", gap: 4 }}>
+                      ↗ {l.label}
+                    </a>
+                  ))}
+                </div>
+              )}
+
+              {/* Método selector */}
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Como implementar</div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+                {kb.methods.map((m, i) => (
+                  <button key={m.id} onClick={() => { setActiveMethod(i); setActiveStep(0); }}
+                    style={{ background: activeMethod === i ? C.info : C.panel2, color: activeMethod === i ? "#fff" : C.dim, border: `1px solid ${activeMethod === i ? C.info : C.line}`, borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>{m.icon}</span> {m.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Steps do método */}
+              {method && (
+                <div style={{ display: "flex", gap: 16 }}>
+                  {/* Sidebar de steps */}
+                  <div style={{ width: 180, flexShrink: 0 }}>
+                    {method.steps.map((s, i) => (
+                      <div key={i} onClick={() => setActiveStep(i)}
+                        style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: 8, cursor: "pointer", background: activeStep === i ? "rgba(59,130,246,0.1)" : "transparent", border: activeStep === i ? `1px solid rgba(59,130,246,0.3)` : "1px solid transparent", marginBottom: 4 }}>
+                        <div style={{ width: 22, height: 22, borderRadius: "50%", background: activeStep === i ? C.info : (i < activeStep ? C.ok : C.panel2), color: activeStep === i || i < activeStep ? "#fff" : C.faint, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                          {i < activeStep ? "✓" : i + 1}
+                        </div>
+                        <span style={{ fontSize: 12, color: activeStep === i ? C.ink : C.dim, lineHeight: 1.4 }}>{s.title}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Conteúdo do step */}
+                  {step && (
+                    <div style={{ flex: 1, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 12, padding: "18px 20px" }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12, color: C.ink }}>
+                        <span style={{ color: C.info }}>Passo {activeStep + 1}</span> — {step.title}
+                      </div>
+                      <div style={{ fontSize: 13.5, color: C.dim, lineHeight: 1.7 }}>
+                        <MarkdownText text={step.body} />
+                      </div>
+                      {step.code && <CodeBlock code={step.code} lang={step.lang} />}
+                      {step.note && (
+                        <div style={{ marginTop: 12, background: "rgba(59,130,246,0.07)", border: "1px solid rgba(59,130,246,0.2)", borderRadius: 7, padding: "8px 12px", fontSize: 12.5, color: C.info }}>
+                          💡 {step.note}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.line}` }}>
+                        <button onClick={() => setActiveStep(Math.max(0, activeStep - 1))} disabled={activeStep === 0}
+                          style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 16px", color: activeStep === 0 ? C.faint : C.dim, fontSize: 13, cursor: activeStep === 0 ? "default" : "pointer" }}>
+                          ← Anterior
+                        </button>
+                        <span style={{ fontSize: 12, color: C.faint, alignSelf: "center" }}>{activeStep + 1} de {method.steps.length}</span>
+                        {activeStep < method.steps.length - 1
+                          ? <button onClick={() => setActiveStep(activeStep + 1)} style={{ background: C.info, border: "none", borderRadius: 8, padding: "8px 16px", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Próximo →</button>
+                          : <button style={{ background: C.ok, border: "none", borderRadius: 8, padding: "8px 16px", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "default" }}>✓ Concluído</button>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SecurityAdvisor() {
   const [recs, setRecs] = useState([]);
   const [vulns, setVulns] = useState([]);
@@ -231,6 +445,7 @@ export default function SecurityAdvisor() {
   const [err, setErr] = useState("");
   const [tab, setTab] = useState("Resumo");
   const [modal, setModal] = useState(null);
+  const [drawer, setDrawer] = useState(null);
   const [filterRec, setFilterRec] = useState("");
   const [filterVuln, setFilterVuln] = useState("");
   const [filterCat, setFilterCat] = useState("Todos");
@@ -403,9 +618,13 @@ export default function SecurityAdvisor() {
                 <div style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 12, padding: 16 }}>
                   <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 12 }}>Top 10 por impacto no score</div>
                   {R.recs.slice(0, 10).map((r, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7, fontSize: 12 }}>
+                    <div key={i} onClick={() => setDrawer(r)}
+                      style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7, fontSize: 12, cursor: "pointer", borderRadius: 6, padding: "4px 6px", transition: "background .1s" }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = C.panel2}
+                      onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
                       <span style={{ color: C.accent, fontWeight: 700, minWidth: 44, fontVariantNumeric: "tabular-nums" }}>{r.impactRaw}</span>
-                      <span style={{ color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                      <span style={{ color: C.dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{r.name}</span>
+                      {KB_NAMES.has(r.name) && <span style={{ fontSize: 10, color: C.ok, border: `1px solid ${C.ok}`, borderRadius: 4, padding: "1px 5px", flexShrink: 0 }}>Guia</span>}
                     </div>
                   ))}
                 </div>
@@ -456,18 +675,31 @@ export default function SecurityAdvisor() {
                   <tr>{colsRec.map((c) => <th key={c.k} style={{ textAlign: "left", padding: "9px 14px", color: C.dim, fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, borderBottom: `1px solid ${C.line}`, background: C.panel2, whiteSpace: "nowrap" }}>{c.h}</th>)}</tr>
                 </thead>
                 <tbody>
-                  {filteredRecs.map((r, i) => (
-                    <tr key={i} style={{ borderBottom: `1px solid ${C.line}` }}>
-                      <td style={{ padding: "8px 14px", color: C.ok, fontWeight: 700, whiteSpace: "nowrap" }}>{r.impactRaw}</td>
-                      <td style={{ padding: "8px 14px", color: C.ink, maxWidth: 400 }}>{r.name}</td>
-                      <td style={{ padding: "8px 14px", color: C.dim, whiteSpace: "nowrap" }}>{r.catGroup}</td>
-                      <td style={{ padding: "8px 14px", color: C.dim, whiteSpace: "nowrap" }}>{r.os || "—"}</td>
-                      <td style={{ padding: "8px 14px", color: r.critical > 0 ? C.crit : C.ink, fontWeight: r.critical > 0 ? 700 : 400, whiteSpace: "nowrap" }}>{r.critical}</td>
-                      <td style={{ padding: "8px 14px", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{r.exposed?.toLocaleString("pt-BR")}</td>
-                      <td style={{ padding: "8px 14px", color: r.remediation > 0 ? C.warn : C.faint, whiteSpace: "nowrap" }}>{r.remediation}</td>
-                      <td style={{ padding: "8px 14px", color: C.faint, fontSize: 11 }}>{r.tags || "—"}</td>
-                    </tr>
-                  ))}
+                  {filteredRecs.map((r, i) => {
+                    const hasKB = KB_NAMES.has(r.name);
+                    return (
+                      <tr key={i} onClick={() => setDrawer(r)}
+                        style={{ borderBottom: `1px solid ${C.line}`, cursor: "pointer", transition: "background .1s" }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = "rgba(59,130,246,0.04)"}
+                        onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}>
+                        <td style={{ padding: "8px 14px", color: C.ok, fontWeight: 700, whiteSpace: "nowrap" }}>{r.impactRaw}</td>
+                        <td style={{ padding: "8px 14px", color: C.ink, maxWidth: 400 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span>{r.name}</span>
+                            {hasKB
+                              ? <span style={{ fontSize: 10, fontWeight: 700, color: C.ok, border: `1px solid ${C.ok}`, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap", flexShrink: 0 }}>✓ Guia</span>
+                              : <span style={{ fontSize: 10, color: C.faint, border: `1px solid ${C.line}`, borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap", flexShrink: 0 }}>Ver detalhes →</span>}
+                          </div>
+                        </td>
+                        <td style={{ padding: "8px 14px", color: C.dim, whiteSpace: "nowrap" }}>{r.catGroup}</td>
+                        <td style={{ padding: "8px 14px", color: C.dim, whiteSpace: "nowrap" }}>{r.os || "—"}</td>
+                        <td style={{ padding: "8px 14px", color: r.critical > 0 ? C.crit : C.ink, fontWeight: r.critical > 0 ? 700 : 400, whiteSpace: "nowrap" }}>{r.critical}</td>
+                        <td style={{ padding: "8px 14px", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{r.exposed?.toLocaleString("pt-BR")}</td>
+                        <td style={{ padding: "8px 14px", color: r.remediation > 0 ? C.warn : C.faint, whiteSpace: "nowrap" }}>{r.remediation}</td>
+                        <td style={{ padding: "8px 14px", color: C.faint, fontSize: 11 }}>{r.tags || "—"}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {filteredRecs.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.faint }}>Nenhum resultado.</div>}
@@ -578,6 +810,7 @@ export default function SecurityAdvisor() {
       )}
 
       <Modal modal={modal} onClose={closeModal} />
+      <ImplementationDrawer rec={drawer} onClose={() => setDrawer(null)} />
     </div>
   );
 }
