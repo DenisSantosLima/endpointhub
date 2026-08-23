@@ -16,6 +16,7 @@ const { titulo, descricao = t('home.lead'), wide = false } = Astro.props;
 const nav = [
   { key: 'nav.inicio', path: '/' },
   { key: 'nav.ferramentas', path: '/ferramentas' },
+  { key: 'nav.recursos', path: '/artigos' },
   { key: 'nav.artigos', path: '/artigos' },
 ] as const;
 
@@ -58,6 +59,7 @@ const isActive = (p) => {
     <div class={wide ? 'container wide' : 'container'}>
       <div class="bar">
         <a class="brand" href={localizedPath('/', lang)}><span class="dot"></span>EndpointHub</a>
+        <span class="brand-tagline">Endpoint Intelligence Platform</span>
         <nav class="nav">
           {nav.map((n) => (
             <a href={localizedPath(n.path, lang)} class={isActive(n.path) ? 'active' : ''}>{t(n.key)}</a>

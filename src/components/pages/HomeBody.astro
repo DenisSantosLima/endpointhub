@@ -4,59 +4,177 @@ import { useTranslations, langFromUrl, localizedPath } from '../../i18n';
 const lang = langFromUrl(Astro.url);
 const t = useTranslations(lang);
 const artigos = (await getCollection('artigos', ({ data }) => !data.rascunho && data.lang === lang))
-  .sort((a, b) => b.data.data.valueOf() - a.data.data.valueOf()).slice(0, 6);
-const ferramentas = [
-  { path: '/ferramentas/saneamento', nome: 't.saneamento.nome', desc: 't.saneamento.desc', estado: 'ready' },
-  { path: '/ferramentas/analytics', nome: 't.analytics.nome', desc: 't.analytics.desc', estado: 'ready' },
-  { path: '/ferramentas', nome: 't.cobertura.nome', desc: 't.cobertura.desc', estado: 'soon' },
-  { path: '/ferramentas', nome: 't.duplicatas.nome', desc: 't.duplicatas.desc', estado: 'soon' },
-];
+  .sort((a, b) => b.data.data.valueOf() - a.data.data.valueOf()).slice(0, 3);
 const locale = lang === 'pt' ? 'pt-BR' : lang === 'es' ? 'es-ES' : 'en-US';
 const fmt = (d) => new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short' }).format(d);
+const sources = t('home.sources').split(',');
+const modules = [
+  {
+    key: 'm1', icon: 'ti-git-compare', iconClass: 'module-icon-blue',
+    path: '/ferramentas/saneamento', live: true,
+  },
+  {
+    key: 'm2', icon: 'ti-heartbeat', iconClass: 'module-icon-green',
+    path: '/ferramentas/analytics', live: true,
+  },
+  {
+    key: 'm3', icon: 'ti-shield-check', iconClass: 'module-icon-violet',
+    path: null, live: false,
+  },
+];
 ---
-<section style="padding: 24px 0 20px;">
-  <p class="eyebrow">{t('home.eyebrow')}</p>
-  <h1 style="max-width: 20ch;">{t('home.h1')}</h1>
-  <p class="lead">{t('home.lead')}</p>
+
+<!-- 1. HERO -->
+<section class="hero">
+  <p class="hero-eyebrow">{t('home.eyebrow')}</p>
+  <h1 class="hero-h1">{t('home.h1')}</h1>
+  <p class="hero-sub">{t('home.sub')}</p>
+  <div class="hero-ctas">
+    <a href={localizedPath('/ferramentas', lang)} class="btn-primary">{t('home.cta.primary')}</a>
+    <a href={localizedPath('/artigos', lang)} class="btn-secondary">{t('home.cta.secondary')}</a>
+  </div>
+  <div class="hero-sources">
+    {sources.map((s) => (
+      <span class="hero-source"><span class="hero-source-dot"></span>{s.trim()}</span>
+    ))}
+  </div>
 </section>
 
-<div class="home-cols">
-  <!-- Coluna ferramentas -->
-  <div>
-    <div class="col-head">
-      <h2 style="margin:0; font-size:18px;">{t('home.tools')}</h2>
-      <a href={localizedPath('/ferramentas', lang)} class="col-link">{t('home.cta.tools')} →</a>
-    </div>
-    <div style="display:flex; flex-direction:column; gap:10px;">
-      {ferramentas.map((f) => (
-        <a class="card" href={f.estado === 'ready' ? localizedPath(f.path, lang) : localizedPath('/ferramentas', lang)}>
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-            <strong style="font-size:14.5px;">{t(f.nome)}</strong>
-            <span class={f.estado === 'ready' ? 'badge pill-ready' : 'badge pill-soon'}>{f.estado === 'ready' ? t('tools.ready') : t('tools.soon')}</span>
+<!-- 2. ENDPOINT INTELLIGENCE — MÓDULOS -->
+<section class="home-section">
+  <div class="section-header">
+    <p class="section-eyebrow">{t('home.modules.eyebrow')}</p>
+    <h2 class="section-h2">{t('home.modules.h2')}</h2>
+    <p class="section-sub">{t('home.modules.sub')}</p>
+  </div>
+  <div class="modules-grid">
+    {modules.map((m) => {
+      const caps = t(`home.${m.key}.caps`).split(',');
+      const href = m.live ? localizedPath(m.path, lang) : '#';
+      return (
+        <a class="module-card" href={href} style={!m.live ? 'opacity:0.75; pointer-events:none;' : ''}>
+          <div class={`module-icon ${m.iconClass}`}>
+            <i class={`ti ${m.icon}`} aria-hidden="true"></i>
           </div>
-          <p style="color:var(--dim); font-size:13px; margin:6px 0 0;">{t(f.desc)}</p>
+          <div>
+            <div class="module-name">{t(`home.${m.key}.name`)}</div>
+            <div class="module-tagline">{t(`home.${m.key}.tagline`)}</div>
+          </div>
+          <p class="module-desc">{t(`home.${m.key}.desc`)}</p>
+          <div class="module-caps">
+            {caps.map((c) => <span class="module-cap">{c.trim()}</span>)}
+          </div>
+          <div class="module-footer">
+            {m.live
+              ? <span class="status-live"><span class="status-live-dot"></span>{t('home.status.live')}</span>
+              : <span class="status-dev"><span class="status-dev-dot"></span>{t('home.status.dev')}</span>}
+            {m.live
+              ? <span class="module-cta-link">{t('home.status.open')}</span>
+              : <span class="module-cta-dim">{t('home.status.soon')}</span>}
+          </div>
         </a>
-      ))}
-    </div>
+      );
+    })}
   </div>
+</section>
 
-  <!-- Coluna artigos -->
-  <div>
-    <div class="col-head">
-      <h2 style="margin:0; font-size:18px;">{t('home.latest')}</h2>
-      <a href={localizedPath('/artigos', lang)} class="col-link">{t('home.cta.articles')} →</a>
+<!-- 3. DASHBOARD PREVIEW -->
+<section class="home-section">
+  <div class="section-header">
+    <p class="section-eyebrow">{t('home.preview.eyebrow')}</p>
+    <h2 class="section-h2">{t('home.preview.h2')}</h2>
+    <p class="section-sub">{t('home.preview.sub')}</p>
+  </div>
+  <div class="preview-shell">
+    <div class="preview-titlebar">
+      <div class="preview-dot" style="background:#f2545b"></div>
+      <div class="preview-dot" style="background:#e3a008"></div>
+      <div class="preview-dot" style="background:#2ea043"></div>
+      <span class="preview-label">EndpointHub — Endpoint Heartbeat</span>
     </div>
-    <div class="card" style="padding:4px 16px;">
-      {artigos.map((a, i) => (
-        <a href={localizedPath(`/artigos/${a.data.slug}`, lang)} class="feed-item" style={i === artigos.length - 1 ? 'border-bottom:none;' : ''}>
-          <span class="feed-date">{fmt(a.data.data)}</span>
-          <span>
-            <span class="feed-title">{a.data.titulo}</span>
-            <span class="feed-meta">{a.data.categoria} · {a.data.nivel}</span>
-          </span>
-        </a>
-      ))}
-      {artigos.length === 0 && <p style="color:var(--faint); font-size:13px; padding:12px 0;">{t('articles.empty')}</p>}
+    <div class="preview-body">
+      <div class="preview-header">
+        <div>
+          <div style="font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:.5px; margin-bottom:2px">{t('home.preview.title')}</div>
+          <div class="preview-title">{t('home.preview.sub2')}</div>
+        </div>
+        <div class="preview-score">94,2%</div>
+      </div>
+      <div class="preview-kpis">
+        <div class="preview-kpi"><div class="preview-kpi-label">{t('home.preview.managed')}</div><div class="preview-kpi-val val-ok">1.248</div></div>
+        <div class="preview-kpi"><div class="preview-kpi-label">{t('home.preview.gaps')}</div><div class="preview-kpi-val val-warn">37</div></div>
+        <div class="preview-kpi"><div class="preview-kpi-label">{t('home.preview.updates')}</div><div class="preview-kpi-val val-warn">86</div></div>
+        <div class="preview-kpi"><div class="preview-kpi-label">{t('home.preview.risks')}</div><div class="preview-kpi-val val-crit">12</div></div>
+      </div>
+      <div class="preview-bars">
+        <div class="preview-bar-row">
+          <span class="preview-bar-label">Compliance</span>
+          <div class="bar-track"><div class="bar-fill bar-ok" style="width:94%"></div></div>
+          <span class="preview-bar-pct">94%</span>
+        </div>
+        <div class="preview-bar-row">
+          <span class="preview-bar-label">Defender</span>
+          <div class="bar-track"><div class="bar-fill bar-blue" style="width:97%"></div></div>
+          <span class="preview-bar-pct">97%</span>
+        </div>
+        <div class="preview-bar-row">
+          <span class="preview-bar-label">Windows Update</span>
+          <div class="bar-track"><div class="bar-fill bar-warn" style="width:89%"></div></div>
+          <span class="preview-bar-pct">89%</span>
+        </div>
+        <div class="preview-bar-row">
+          <span class="preview-bar-label">Criptografia</span>
+          <div class="bar-track"><div class="bar-fill bar-ok" style="width:99%"></div></div>
+          <span class="preview-bar-pct">99%</span>
+        </div>
+      </div>
+      <div class="preview-footer">
+        <a href={localizedPath('/ferramentas/analytics', lang)} style="color:var(--accent); font-size:13px;">{t('home.preview.cta')}</a>
+      </div>
     </div>
   </div>
-</div>
+</section>
+
+<!-- 4. PRIVACY BY DESIGN -->
+<section class="home-section">
+  <div class="privacy-block">
+    <div class="privacy-icon-wrap">
+      <i class="ti ti-lock" aria-hidden="true"></i>
+    </div>
+    <div>
+      <div class="privacy-title">{t('home.privacy.title')}</div>
+      <div class="privacy-sub">{t('home.privacy.sub')}</div>
+      <p class="privacy-body">{t('home.privacy.body')}</p>
+      <div class="privacy-pills">
+        <span class="privacy-pill">{t('home.privacy.p1')}</span>
+        <span class="privacy-pill">{t('home.privacy.p2')}</span>
+        <span class="privacy-pill">{t('home.privacy.p3')}</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. CONHECIMENTO -->
+<section class="home-section" style="border-bottom:none; padding-bottom:40px;">
+  <div class="section-header">
+    <p class="section-eyebrow">{t('home.knowledge.eyebrow')}</p>
+    <h2 class="section-h2">{t('home.knowledge.h2')}</h2>
+    <p class="section-sub">{t('home.knowledge.sub')}</p>
+  </div>
+  <div class="articles-home-grid">
+    {artigos.map((a) => (
+      <a href={localizedPath(`/artigos/${a.data.slug}`, lang)} class="article-home-card">
+        <div class="article-home-cat">{a.data.categoria}</div>
+        <div class="article-home-title">{a.data.titulo}</div>
+        <div class="article-home-meta">
+          <span>{a.data.nivel}</span>
+          <span>{fmt(a.data.data)}</span>
+        </div>
+      </a>
+    ))}
+    {artigos.length === 0 && (
+      <p style="color:var(--faint); font-size:13px;">{t('articles.empty')}</p>
+    )}
+  </div>
+  <a href={localizedPath('/artigos', lang)} class="articles-home-cta">{t('home.knowledge.cta')}</a>
+</section>
