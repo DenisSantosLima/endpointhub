@@ -91,6 +91,11 @@ function analyze(devices) {
   };
   const allDevices = devices.map(rowBase).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   const noCheckin45 = devices.filter((x) => daysSince(x) > 45).map(rowBase).sort((a, b) => (b.dias || 0) - (a.dias || 0));
+  const compliantList = devices.filter((x) => x["Compliance"] === "Compliant").map(rowBase);
+  const nonCompliantList = devices.filter((x) => x["Compliance"] === "Noncompliant").map(rowBase);
+  const encryptedList = devices.filter((x) => x["Encrypted"] === "True").map(rowBase);
+  const supervisedList = devices.filter((x) => x["Supervised"] === "True").map(rowBase);
+  const notSupervisedList = devices.filter((x) => x["Supervised"] !== "True").map(rowBase);
 
   const notEncrypted = devices.filter((x) => x["Encrypted"] !== "True").map((x) => {
     const lastRaw = x["Last check-in"] || "";
@@ -121,6 +126,7 @@ function analyze(devices) {
     byOwnership: toPairs(byOwnership), bySupervised: toPairs(bySupervised), byJoin: toPairs(byJoin),
     byOSVer: toPairs(byOSVer, 8), byComp: toPairs(byComp), encByOS,
     notEncrypted, nonCompliant, lowDisk, allDevices, noCheckin45,
+    compliantList, nonCompliantList, encryptedList, supervisedList, notSupervisedList,
   };
 }
 
@@ -446,10 +452,25 @@ export default function EndpointAnalytics() {
 
         {A && tab === "Compliance" && (
           <>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-              <KPI label="Compliant" sub="Em conformidade" value={A.N - A.nonComp} accent={C.ok} bar={((A.N - A.nonComp) / A.N) * 100} pct={pctOf(A.N - A.nonComp)} />
-              <KPI label="Non-compliant" sub="Fora de conformidade" value={A.nonComp} accent={C.warn} bar={(A.nonComp / A.N) * 100} pct={`${A.nonComp} de ${A.N} · ${pctOf(A.nonComp)}`} />
-            </div>
+            {(() => {
+              const colsComp = [
+                { k: "name", h: "Device" }, { k: "serial", h: "Serial" },
+                { k: "upn", h: "UPN" }, { k: "os", h: "OS" }, { k: "osver", h: "Versão" },
+                { k: "owner", h: "Ownership" }, { k: "comp", h: "Compliance" },
+                { k: "enc", h: "Criptografado" }, { k: "last", h: "Últ. check-in" },
+                { k: "dias", h: "Dias s/ check-in", r: (v) => v == null ? "—" : `${v}d` },
+              ];
+              return (
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+                  <KPI label="Compliant" sub="Em conformidade" value={A.N - A.nonComp} accent={C.ok} bar={((A.N - A.nonComp) / A.N) * 100}
+                    pct={pctOf(A.N - A.nonComp)}
+                    onClick={() => openModal({ title: "Dispositivos Compliant", sub: `${A.N - A.nonComp} devices em conformidade`, rows: A.compliantList, cols: colsComp })} />
+                  <KPI label="Non-compliant" sub="Fora de conformidade" value={A.nonComp} accent={C.warn} bar={(A.nonComp / A.N) * 100}
+                    pct={`${A.nonComp} de ${A.N} · ${pctOf(A.nonComp)}`}
+                    onClick={() => openModal({ title: "Dispositivos Non-compliant", sub: `${A.nonComp} devices fora de conformidade — requer ação`, rows: A.nonCompliantList, cols: colsComp })} />
+                </div>
+              );
+            })()}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
               <Donut title="Conformidade" sub="Compliant vs Noncompliant" data={A.byComp} />
               <Donut title="Por plataforma" sub="Distribuição por OS" data={A.byOS} />
@@ -463,11 +484,38 @@ export default function EndpointAnalytics() {
 
         {A && tab === "Configuration" && (
           <>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-              <KPI label="Criptografados" sub="Encryption habilitada" value={A.enc} accent={C.pink} bar={(A.enc / A.N) * 100} pct={pctOf(A.enc)} />
-              <KPI label="Não criptografados" sub="Sem encryption" value={A.N - A.enc} accent={C.crit} pct={`${A.N - A.enc} de ${A.N}`} />
-              <KPI label="Supervisionados" sub="Supervised = true" value={A.bySupervised.find((x) => x.name === "Supervisionado")?.value || 0} accent={C.info} />
-            </div>
+            {(() => {
+              const colsCfg = [
+                { k: "name", h: "Device" }, { k: "serial", h: "Serial" },
+                { k: "upn", h: "UPN" }, { k: "os", h: "OS" }, { k: "osver", h: "Versão" },
+                { k: "owner", h: "Ownership" }, { k: "enc", h: "Criptografado" },
+                { k: "comp", h: "Compliance" }, { k: "last", h: "Últ. check-in" },
+                { k: "dias", h: "Dias s/ check-in", r: (v) => v == null ? "—" : `${v}d` },
+              ];
+              const supCount = A.bySupervised.find((x) => x.name === "Supervisionado")?.value || 0;
+              const notSupCount = A.N - supCount;
+              return (
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+                  <KPI label="Criptografados" sub="Encryption habilitada" value={A.enc} accent={C.pink} bar={(A.enc / A.N) * 100}
+                    pct={pctOf(A.enc)}
+                    onClick={() => openModal({ title: "Dispositivos criptografados", sub: `${A.enc} devices com encryption habilitada`, rows: A.encryptedList, cols: colsCfg })} />
+                  <KPI label="Não criptografados" sub="Sem encryption" value={A.N - A.enc} accent={C.crit}
+                    pct={`${A.N - A.enc} de ${A.N}`}
+                    onClick={() => openModal({ title: "Não criptografados", sub: `${A.notEncrypted.length} devices sem encryption — priorize a remediação`, rows: A.notEncrypted, cols: [
+                      { k: "name", h: "Device" }, { k: "serial", h: "Serial" }, { k: "upn", h: "UPN" },
+                      { k: "os", h: "OS" }, { k: "osver", h: "Versão" }, { k: "last", h: "Últ. check-in" },
+                      { k: "dias", h: "Dias s/ check-in", r: (v) => v == null ? "—" : `${v}d` },
+                      { k: "enc", h: "Criptografado" }, { k: "comp", h: "Compliance" },
+                    ]})} />
+                  <KPI label="Supervisionados" sub="Supervised = true" value={supCount} accent={C.info}
+                    pct={`${supCount} de ${A.N}`}
+                    onClick={() => openModal({ title: "Dispositivos supervisionados", sub: `${supCount} devices com Supervised = true`, rows: A.supervisedList, cols: colsCfg })} />
+                  <KPI label="Não supervisionados" sub="Supervised = false" value={notSupCount} accent={C.dim}
+                    pct={`${notSupCount} de ${A.N}`}
+                    onClick={() => openModal({ title: "Não supervisionados", sub: `${notSupCount} devices sem supervisão`, rows: A.notSupervisedList, cols: colsCfg })} />
+                </div>
+              );
+            })()}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
               <Donut title="Criptografia" sub="Encrypted" data={[{ name: "Criptografado", value: A.enc }, { name: "Não", value: A.N - A.enc }]} />
               <Donut title="Propriedade" sub="Ownership" data={A.byOwnership} />
@@ -492,11 +540,27 @@ export default function EndpointAnalytics() {
 
         {A && tab === "Operating Systems" && (
           <>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-              {A.byOS.slice(0, 4).map((o, i) => (
-                <KPI key={o.name} label={o.name} sub="Dispositivos" value={o.value} accent={DONUT[i % DONUT.length]} bar={(o.value / A.N) * 100} pct={pctOf(o.value)} />
-              ))}
-            </div>
+            {(() => {
+              const colsOS = [
+                { k: "name", h: "Device" }, { k: "serial", h: "Serial" },
+                { k: "upn", h: "UPN" }, { k: "os", h: "OS" }, { k: "osver", h: "Versão" },
+                { k: "comp", h: "Compliance" }, { k: "enc", h: "Criptografado" },
+                { k: "last", h: "Últ. check-in" },
+                { k: "dias", h: "Dias s/ check-in", r: (v) => v == null ? "—" : `${v}d` },
+              ];
+              return (
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+                  {A.byOS.slice(0, 4).map((o, i) => {
+                    const osDevices = A.allDevices.filter((d) => d.os === o.name);
+                    return (
+                      <KPI key={o.name} label={o.name} sub="Dispositivos" value={o.value}
+                        accent={DONUT[i % DONUT.length]} bar={(o.value / A.N) * 100} pct={pctOf(o.value)}
+                        onClick={() => openModal({ title: `Dispositivos ${o.name}`, sub: `${o.value} devices com ${o.name}`, rows: osDevices, cols: colsOS })} />
+                    );
+                  })}
+                </div>
+              );
+            })()}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 12 }}>
               <Donut title="Sistemas operacionais" sub="Distribuição por OS" data={A.byOS} />
               <Donut title="Versões de OS" sub="Top versões (agrupadas)" data={A.byOSVer} />
