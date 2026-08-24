@@ -410,6 +410,399 @@ export const KB = {
     ],
   },
 
+  "Require LDAP client signing to prevent tampering and protect directory authentication": {
+    summary: "Exige que os workstations Windows assinem digitalmente as consultas LDAP enviadas ao Active Directory. A assinatura (integrity signing) garante que o pacote não foi alterado em trânsito entre o cliente e o Domain Controller — sem ela, um atacante em posição de MITM pode adulterar respostas de consulta ou usar a sessão para relay de autenticação.",
+    risk: "Sem exigência de assinatura, um atacante na mesma rede pode interceptar e modificar tráfego LDAP não assinado (man-in-the-middle), fazendo o cliente tomar decisões com base em registros falsos do diretório. Esse mesmo canal desprotegido é usado em ataques de NTLM relay contra o LDAP/LDAPS para criação de objetos ou escalonamento de privilégio (ex: técnica usada por ferramentas como ntlmrelayx). É um dos vetores mais explorados em comprometimento de Active Directory.",
+    links: [
+      { label: "Microsoft — How to enable LDAP signing", url: "https://learn.microsoft.com/en-us/troubleshoot/windows-server/active-directory/enable-ldap-signing-in-windows-server" },
+      { label: "Microsoft — AD Hardening Series: Enforcing LDAP Signing", url: "https://techcommunity.microsoft.com/blog/coreinfrastructureandsecurityblog/active-directory-hardening-series---part-3-%E2%80%93-enforcing-ldap-signing/4066233" },
+      { label: "LDAPWiki — LDAP Signing", url: "https://ldapwiki.com/wiki/Wiki.jsp?page=LDAP+Signing" },
+    ],
+    methods: [
+      {
+        id: "intune-settings-catalog",
+        label: "Via Intune (Settings Catalog — lado cliente)",
+        icon: "⚙️",
+        platform: "windows",
+        steps: [
+          {
+            title: "Entender os dois lados da configuração",
+            body: "Esta recomendação tem **dois lados** que precisam ser configurados juntos:\n\n- **Lado cliente** (workstations Windows): controlado via Intune/GPO — é o que fazemos aqui.\n- **Lado servidor** (Domain Controllers): controlado via GPO aplicado diretamente nos DCs — **não é gerenciável pelo Intune**, precisa ser feito via Group Policy tradicional ou LDP.exe.\n\nSe apenas o lado cliente for configurado, os workstations vão *solicitar* assinatura mas o DC pode aceitar binds sem assinatura de outros clientes. O ideal é configurar os dois lados.",
+            note: "Foque primeiro no lado cliente (via Intune) — é o escopo desta ferramenta. Peça ao time de AD para aplicar 'Domain controller: LDAP server signing requirements = Require signing' na Default Domain Controllers Policy.",
+          },
+          {
+            title: "Criar perfil de configuração no Intune",
+            body: "No Intune Admin Center: **Devices → Configuration → Create → New policy**\n- Platform: **Windows 10 and later**\n- Profile type: **Settings catalog**",
+          },
+          {
+            title: "Localizar e configurar o setting",
+            body: "Clique em **+ Add settings**, busque por:\n```\nLDAP client signing requirements\n```\nLocalize em **Local Policies Security Options** o setting:\n- **Network security: LDAP client signing requirements**\n\nConfigure o valor para:\n- **Require Signing**",
+            note: "O valor padrão do Windows já é 'Negotiate signing' — clientes Windows não devem quebrar com essa mudança. O risco de compatibilidade está em dispositivos não-Windows (Linux, appliances, scanners) que fazem bind LDAP sem suporte a SASL signing.",
+          },
+          {
+            title: "Fase de auditoria antes de aplicar amplamente",
+            body: "Antes de exigir globalmente, monitore nos Domain Controllers o **Event ID 2887** (Directory Service log) — ele mostra a cada 24h o total de binds LDAP não assinados na rede. Se o número for alto, habilite diagnóstico detalhado para identificar a origem:\n```\nreg add HKLM\\\\SYSTEM\\\\CurrentControlSet\\\\Services\\\\NTDS\\\\Diagnostics /v \"16 LDAP Interface Events\" /t REG_DWORD /d 2\n```\nIsso ativa o **Event ID 2889**, que loga IP e conta de cada bind não assinado — use para identificar exceções antes de aplicar 'Require'.",
+            code: "reg add HKLM\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Diagnostics /v \"16 LDAP Interface Events\" /t REG_DWORD /d 2",
+            lang: "powershell",
+          },
+          {
+            title: "Atribuir e verificar",
+            body: "Atribua o perfil ao grupo de workstations Windows. Após sincronizar, verifique no device:",
+            code: [
+              "Get-ItemProperty -Path \"HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Services\\\\LDAP\" -Name \"LDAPClientIntegrity\" -ErrorAction SilentlyContinue",
+              "",
+              "# Valores: 0 = None | 1 = Negotiate signing | 2 = Require signing (esperado)"
+            ].join("\n"),
+            lang: "powershell",
+          },
+        ],
+      },
+      {
+        id: "proactive-remediation",
+        label: "Via Proactive Remediation",
+        icon: "🔧",
+        platform: "windows",
+        steps: [
+          {
+            title: "Script de detecção",
+            body: "Crie `Detect-LDAPClientSigning.ps1`:",
+            code: [
+              "$path = \"HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Services\\\\LDAP\"",
+              "$value = Get-ItemProperty -Path $path -Name \"LDAPClientIntegrity\" -ErrorAction SilentlyContinue",
+              "",
+              "if ($null -eq $value -or $value.LDAPClientIntegrity -lt 2) {",
+              "    Write-Output \"LDAP client signing nao esta em Require. Valor atual: $($value.LDAPClientIntegrity)\"",
+              "    exit 1",
+              "} else {",
+              "    Write-Output \"Conforme: LDAPClientIntegrity = 2 (Require signing)\"",
+              "    exit 0",
+              "}"
+            ].join("\n"),
+            lang: "powershell",
+          },
+          {
+            title: "Script de remediação",
+            body: "Crie `Remediate-LDAPClientSigning.ps1`:",
+            code: [
+              "$path = \"HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Services\\\\LDAP\"",
+              "if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }",
+              "Set-ItemProperty -Path $path -Name \"LDAPClientIntegrity\" -Value 2 -Type DWord -Force",
+              "Write-Output \"LDAPClientIntegrity configurado para 2 (Require signing)\""
+            ].join("\n"),
+            lang: "powershell",
+          },
+          {
+            title: "Deploy no Intune",
+            body: "**Devices → Scripts and remediations → Remediations → Create**\n\n- Detection script: `Detect-LDAPClientSigning.ps1`\n- Remediation script: `Remediate-LDAPClientSigning.ps1`\n- Run as: **System (64-bit)**\n- Schedule: **Every 1 day**\n\nAtribua ao grupo de workstations Windows.",
+          },
+        ],
+      },
+    ],
+  },
+
+  "Encrypt LDAP client traffic to protect sensitive data in transit": {
+    summary: "Garante que o tráfego LDAP entre os workstations Windows e os Domain Controllers seja selado (criptografado), não apenas assinado. Quando a assinatura LDAP é negociada via SASL (NTLM ou Kerberos), o Windows normalmente ativa sealing (confidencialidade) junto com signing (integridade) — mas isso só ocorre quando o cliente é configurado para negociar ou exigir o nível correto.",
+    risk: "Tráfego LDAP em texto claro pode expor consultas ao diretório — incluindo nomes de usuário, estrutura de OUs, grupos e, em binds simples sem TLS, até credenciais. Um atacante capturando tráfego de rede (packet sniffing) consegue reconstruir informações sensíveis sobre a topologia do AD e, em cenários de simple bind, capturar senhas diretamente.",
+    links: [
+      { label: "Microsoft — LDAP over SSL (LDAPS) Certificate", url: "https://learn.microsoft.com/en-us/troubleshoot/windows-server/identity/enable-ldap-over-ssl-3rd-certification-authority" },
+      { label: "U-Tools — LDAP Signing Requirements for Active Directory", url: "https://u-tools.com/help/LdapMismatch.asp" },
+      { label: "KomuraSoft — SMB and LDAP Signing for NTLM Relay Defence", url: "https://comcomponent.com/en/blog/smb-signing-ldap-channel-binding/" },
+    ],
+    methods: [
+      {
+        id: "intune-settings-catalog",
+        label: "Via Intune (Settings Catalog)",
+        icon: "⚙️",
+        platform: "windows",
+        steps: [
+          {
+            title: "Relação com 'Require LDAP client signing'",
+            body: "Esta recomendação está **diretamente ligada** à recomendação *'Require LDAP client signing'*. No Windows, quando o cliente LDAP negocia autenticação via SASL (NTLM ou Kerberos) com **Negotiate signing** ou **Require signing**, o SSPI ativa integridade (signing) **e** confidencialidade (sealing/criptografia) na mesma negociação — não existe um toggle separado só para 'criptografar sem assinar'.\n\nSe você já aplicou o guia de **Require LDAP client signing**, esta recomendação tende a ser resolvida automaticamente. Confirme antes de duplicar esforço.",
+            note: "Ambas as recomendações do Defender podem apontar para o mesmo registry value (LDAPClientIntegrity). Aplicar 'Require signing' uma vez cobre as duas.",
+          },
+          {
+            title: "Configurar via Settings Catalog (caso ainda não aplicado)",
+            body: "No Intune: **Devices → Configuration → Create → New policy**\n- Platform: **Windows 10 and later**\n- Profile type: **Settings catalog**\n\nBusque por `LDAP client signing requirements` e configure:\n- **Network security: LDAP client signing requirements** = **Require Signing**",
+          },
+          {
+            title: "Considerar LDAPS (porta 636) para cenários que exigem TLS completo",
+            body: "Para cenários que exigem criptografia via TLS (ex: integração com aplicações de terceiros, LDAP simple bind), avalie habilitar **LDAP over SSL (LDAPS)** nos Domain Controllers — isso requer certificado emitido para os DCs e é uma configuração do lado servidor, feita pelo time de AD/PKI, não pelo Intune.",
+            note: "LDAPS é o caminho recomendado quando aplicações fazem simple bind (usuário + senha em texto claro) — o sealing via SASL não protege esse tipo de bind.",
+          },
+          {
+            title: "Verificar aplicação",
+            body: "No device Windows, confirme o valor:",
+            code: [
+              "Get-ItemProperty -Path \"HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Services\\\\LDAP\" -Name \"LDAPClientIntegrity\" -ErrorAction SilentlyContinue",
+              "",
+              "# 2 = Require signing (ativa integridade + confidencialidade via SASL sealing)"
+            ].join("\n"),
+            lang: "powershell",
+          },
+        ],
+      },
+    ],
+  },
+
+  "Set 'Minimum PIN length for startup' to '6 or more characters'": {
+    summary: "Define o comprimento mínimo do PIN de inicialização do BitLocker (TPM + PIN) em dispositivos Windows. Um PIN mais longo aumenta exponencialmente o tempo necessário para um ataque de força bruta contra o pré-boot, mesmo em cenários de acesso físico ao equipamento.",
+    risk: "PINs curtos (4 dígitos) podem ser testados rapidamente em ataques de força bruta com acesso físico ao dispositivo, especialmente se o TPM não tiver lockout configurado corretamente. Um PIN fraco reduz drasticamente a proteção que o BitLocker oferece contra roubo ou perda do equipamento.",
+    links: [
+      { label: "Microsoft — Configure minimum PIN length for startup", url: "https://learn.microsoft.com/en-us/intune/configmgr/protect/tech-ref/bitlocker/settings" },
+      { label: "Microsoft Graph — bitLockerSystemDrivePolicy", url: "https://learn.microsoft.com/en-us/graph/api/resources/intune-deviceconfig-bitlockersystemdrivepolicy?view=graph-rest-beta" },
+    ],
+    methods: [
+      {
+        id: "intune-endpoint-security",
+        label: "Via Intune (Endpoint Security — Disk Encryption)",
+        icon: "🔒",
+        platform: "windows",
+        steps: [
+          {
+            title: "Criar ou editar o perfil de Disk Encryption",
+            body: "No Intune Admin Center: **Endpoint security → Disk encryption → Create Policy**\n- Platform: **Windows 10, Windows 11, and Windows Server**\n- Profile: **BitLocker**\n\nSe já existir um perfil de BitLocker aplicado, edite-o em vez de criar um novo.",
+          },
+          {
+            title: "Configurar autenticação adicional na inicialização",
+            body: "Na seção **BitLocker – Base Settings**, em **Additional authentication at startup**:\n- **Configure additional authentication at startup**: **Enable**\n- **BitLocker system drive policy → Startup PIN**: **Require startup PIN with TPM** (ou **Allow**, conforme a política da organização)\n- **Configure minimum PIN length for startup**: **Enable**\n- **Minimum PIN length**: `6`",
+            note: "O mínimo aceito pelo Windows é 4 e o máximo 20 dígitos, mas desde o Windows 10 1703 o padrão recomendado é 6+. PINs abaixo de 6 fazem o Windows ajustar o período de lockout do TPM 2.0 para compensar.",
+          },
+          {
+            title: "Atribuir e forçar re-configuração se necessário",
+            body: "Atribua o perfil ao grupo de dispositivos Windows. Dispositivos que já têm BitLocker habilitado com um PIN mais curto **não são forçados a trocar automaticamente** — o usuário só será solicitado a atualizar o PIN na próxima mudança voluntária, a menos que você force a reconfiguração via script.",
+          },
+          {
+            title: "Forçar atualização do PIN existente (opcional)",
+            body: "Para ambientes que já têm BitLocker ativo com PIN curto, use um script para forçar a atualização:",
+            code: [
+              "# Force-BitLockerPinUpdate.ps1",
+              "# Verifica o comprimento atual do PIN e notifica o usuario para atualizar",
+              "# (o Windows nao permite ler o PIN atual por seguranca; a validacao real",
+              "# ocorre no proximo ciclo de alteracao voluntaria pelo usuario)",
+              "",
+              "$status = manage-bde -status C:",
+              "Write-Output $status",
+              "Write-Output \"Lembre o usuario de atualizar o PIN do BitLocker para 6+ digitos via Painel de Controle > BitLocker Drive Encryption > Change PIN\""
+            ].join("\n"),
+            lang: "powershell",
+          },
+          {
+            title: "Verificar a política aplicada",
+            body: "No device, confirme a política efetiva:",
+            code: "Get-ItemProperty -Path \"HKLM:\\SOFTWARE\\Policies\\Microsoft\\FVE\" -Name \"MinimumPIN\" -ErrorAction SilentlyContinue",
+            lang: "powershell",
+          },
+        ],
+      },
+    ],
+  },
+
+  "Set 'Enforce password history' to '24 or more password(s)' in macOS": {
+    summary: "Impede que usuários reutilizem uma das últimas 24 senhas ao trocar a senha da conta no macOS. Isso força a criação de senhas genuinamente novas a cada troca, em vez de alternar entre 2-3 senhas conhecidas.",
+    risk: "Sem histórico de senha, um usuário pode alternar entre a mesma senha antiga e uma nova a cada exigência de troca, anulando o benefício de políticas de expiração de senha. Se uma senha antiga já vazou (ex: em um data breach anterior), reutilizá-la mantém o dispositivo exposto.",
+    links: [
+      { label: "CIS macOS Benchmark — Password Policy", url: "https://www.cisecurity.org/benchmark/apple_os" },
+      { label: "Intune Settings Catalog — macOS Passcode", url: "https://learn.microsoft.com/en-us/mem/intune/configuration/settings-catalog" },
+    ],
+    methods: [
+      {
+        id: "intune-settings-catalog",
+        label: "Via Intune (Settings Catalog)",
+        icon: "⚙️",
+        platform: "macos",
+        steps: [
+          {
+            title: "Criar perfil de configuração",
+            body: "No Intune Admin Center: **Devices → Configuration → Create → New policy**\n- Platform: **macOS**\n- Profile type: **Settings catalog**",
+          },
+          {
+            title: "Adicionar o setting de histórico de senha",
+            body: "Clique em **+ Add settings**, busque por `password` e localize na categoria **Passcode**:\n- **Password History**\n\nConfigure o valor:\n- **Password History**: `24`",
+          },
+          {
+            title: "Atribuir e verificar",
+            body: "Atribua ao grupo de dispositivos macOS. Para validar no terminal:\n```bash\npwpolicy -n /Local/Default -getglobalpolicy\n```\nO output deve conter `usingHistory=24`.",
+            code: "pwpolicy -n /Local/Default -getglobalpolicy",
+            lang: "bash",
+          },
+        ],
+      },
+      {
+        id: "shell-script-intune",
+        label: "Via Shell Script (Intune)",
+        icon: "🖥️",
+        platform: "macos",
+        steps: [
+          {
+            title: "Script de configuração",
+            body: "Crie e faça deploy via Intune Platform Scripts:",
+            code: [
+              "#!/bin/bash",
+              "",
+              "HISTORICO_SENHAS=24",
+              "",
+              "sudo /usr/bin/pwpolicy -n /Local/Default -setglobalpolicy \"usingHistory=$HISTORICO_SENHAS\"",
+              "",
+              "echo \"Politica aplicada: historico de $HISTORICO_SENHAS senhas\"",
+              "pwpolicy -n /Local/Default -getglobalpolicy | grep usingHistory"
+            ].join("\n"),
+            lang: "bash",
+          },
+          {
+            title: "Deploy via Intune",
+            body: "**Devices → Scripts and remediations → Platform scripts → Add → macOS**\n\n- Run as: **root (No)**\n- Frequency: **Every 1 week**\n- Atribua ao grupo de dispositivos macOS",
+          },
+        ],
+      },
+    ],
+  },
+
+  "Set 'Maximum password age' to '90 or fewer days, but not 0' in macOS": {
+    summary: "Define o número máximo de dias que uma senha pode permanecer sem ser trocada no macOS. Zero significa 'nunca expira', o que a recomendação explicitamente pede para evitar — o valor deve estar entre 1 e 90 dias.",
+    risk: "Senhas que nunca expiram permanecem válidas indefinidamente mesmo após vazamentos, comprometimento de credenciais ou saída de funcionários que conheciam a senha compartilhada de uma conta local. Rotação periódica limita a janela de exposição de uma credencial comprometida.",
+    links: [
+      { label: "CIS macOS Benchmark — Password Policy", url: "https://www.cisecurity.org/benchmark/apple_os" },
+      { label: "Intune Settings Catalog — macOS Passcode", url: "https://learn.microsoft.com/en-us/mem/intune/configuration/settings-catalog" },
+    ],
+    methods: [
+      {
+        id: "intune-settings-catalog",
+        label: "Via Intune (Settings Catalog)",
+        icon: "⚙️",
+        platform: "macos",
+        steps: [
+          {
+            title: "Criar perfil de configuração",
+            body: "No Intune Admin Center: **Devices → Configuration → Create → New policy**\n- Platform: **macOS**\n- Profile type: **Settings catalog**",
+          },
+          {
+            title: "Adicionar o setting de idade máxima de senha",
+            body: "Clique em **+ Add settings**, busque por `password` e localize na categoria **Passcode**:\n- **Maximum Passcode Age In Days**\n\nConfigure o valor:\n- **Maximum Passcode Age In Days**: `90`",
+            note: "Nunca configure como `0` — isso desativa a expiração, o oposto do que a recomendação pede.",
+          },
+          {
+            title: "Atribuir e verificar",
+            body: "Atribua ao grupo de dispositivos macOS. Para validar no terminal:\n```bash\npwpolicy -n /Local/Default -getglobalpolicy\n```\nO output deve conter `maxMinutesUntilChangePassword=129600` (90 dias × 1440 minutos).",
+            code: "pwpolicy -n /Local/Default -getglobalpolicy",
+            lang: "bash",
+          },
+        ],
+      },
+      {
+        id: "shell-script-intune",
+        label: "Via Shell Script (Intune)",
+        icon: "🖥️",
+        platform: "macos",
+        steps: [
+          {
+            title: "Script de configuração",
+            body: "O `pwpolicy` trabalha com minutos, não dias — o script já faz a conversão. Crie e faça deploy via Intune Platform Scripts:",
+            code: [
+              "#!/bin/bash",
+              "",
+              "DIAS_MAXIMOS=90",
+              "MINUTOS_MAXIMOS=$((DIAS_MAXIMOS * 24 * 60))",
+              "",
+              "sudo /usr/bin/pwpolicy -n /Local/Default -setglobalpolicy \"maxMinutesUntilChangePassword=$MINUTOS_MAXIMOS\"",
+              "",
+              "echo \"Politica aplicada: senha expira em $DIAS_MAXIMOS dias ($MINUTOS_MAXIMOS minutos)\"",
+              "pwpolicy -n /Local/Default -getglobalpolicy | grep maxMinutesUntilChangePassword"
+            ].join("\n"),
+            lang: "bash",
+          },
+          {
+            title: "Deploy via Intune",
+            body: "**Devices → Scripts and remediations → Platform scripts → Add → macOS**\n\n- Run as: **root (No)**\n- Frequency: **Every 1 week**\n- Atribua ao grupo de dispositivos macOS",
+          },
+        ],
+      },
+    ],
+  },
+
+  "SMB server security hardening against authentication relay attacks": {
+    summary: "Exige assinatura digital (SMB signing) nas comunicações SMB do servidor e do cliente Windows. A assinatura garante que os pacotes SMB não foram adulterados em trânsito e — mais importante — impede que autenticações NTLM transportadas sobre SMB sejam usadas em ataques de relay, já que o atacante não possui a chave de sessão necessária para assinar as mensagens retransmitidas.",
+    risk: "Sem SMB signing obrigatório, um atacante na mesma rede pode coagir um usuário ou serviço a autenticar (via PetitPotam, bug de impressora, LLMNR/NBT-NS poisoning) e então retransmitir (relay) essa autenticação NTLM contra outro servidor — muitas vezes chegando a Domain Admin em ambientes AD sem esse hardening. É uma das técnicas mais usadas em movimentação lateral e escalonamento de privilégio pós-comprometimento.",
+    links: [
+      { label: "Microsoft — SMB security hardening in Windows Server and Windows Client", url: "https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-security-hardening" },
+      { label: "Microsoft — AD Hardening Series: Enforcing SMB Signing", url: "https://techcommunity.microsoft.com/blog/coreinfrastructureandsecurityblog/active-directory-hardening-series---part-6-%E2%80%93-enforcing-smb-signing/4272168" },
+    ],
+    methods: [
+      {
+        id: "intune-settings-catalog",
+        label: "Via Intune (Settings Catalog)",
+        icon: "⚙️",
+        platform: "windows",
+        steps: [
+          {
+            title: "Criar perfil de configuração",
+            body: "No Intune Admin Center: **Devices → Configuration → Create → New policy**\n- Platform: **Windows 10 and later**\n- Profile type: **Settings catalog**",
+          },
+          {
+            title: "Configurar assinatura no servidor SMB (lado que recebe conexões)",
+            body: "Busque por `digitally sign communications` e localize em **Local Policies Security Options**:\n- **Microsoft network server: Digitally sign communications (always)** → **Enabled**\n\nEsse setting controla o SMB Server — cada dispositivo Windows também atua como servidor SMB (compartilhamento de arquivos/impressoras), então essa recomendação se aplica mesmo a workstations comuns.",
+          },
+          {
+            title: "Configurar assinatura no cliente SMB (complementar)",
+            body: "Adicione também:\n- **Microsoft network client: Digitally sign communications (always)** → **Enabled**\n\nAmbos os lados (client e server) devem exigir assinatura para fechar o vetor de relay completamente — configurar só um lado deixa brecha para conexões partindo da direção não protegida.",
+            note: "⚠️ Teste em um grupo piloto antes de aplicar amplamente. Dispositivos SMBv1 legados, NAS antigos ou impressoras de rede sem suporte a signing vão parar de conectar. Use os Eventos 3021/3022 (SMB Server) e 31998/31999 (SMB Client) no Windows para auditar quem depende de conexões não assinadas antes de reforçar.",
+          },
+          {
+            title: "Atribuir e monitorar",
+            body: "Atribua o perfil ao grupo de workstations Windows, priorizando um grupo piloto de 5-10% antes da expansão total.",
+          },
+        ],
+      },
+      {
+        id: "proactive-remediation",
+        label: "Via Proactive Remediation",
+        icon: "🔧",
+        platform: "windows",
+        steps: [
+          {
+            title: "Script de detecção",
+            body: "Crie `Detect-SMBSigningRequired.ps1`:",
+            code: [
+              "$serverPath = \"HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Services\\\\LanmanServer\\\\Parameters\"",
+              "$clientPath = \"HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Services\\\\LanmanWorkstation\\\\Parameters\"",
+              "",
+              "$server = (Get-ItemProperty -Path $serverPath -Name \"RequireSecuritySignature\" -ErrorAction SilentlyContinue).RequireSecuritySignature",
+              "$client = (Get-ItemProperty -Path $clientPath -Name \"RequireSecuritySignature\" -ErrorAction SilentlyContinue).RequireSecuritySignature",
+              "",
+              "if ($server -eq 1 -and $client -eq 1) {",
+              "    Write-Output \"Conforme: SMB signing obrigatorio no server e no client\"",
+              "    exit 0",
+              "} else {",
+              "    Write-Output \"Nao conforme: Server=$server Client=$client (esperado: 1 e 1)\"",
+              "    exit 1",
+              "}"
+            ].join("\n"),
+            lang: "powershell",
+          },
+          {
+            title: "Script de remediação",
+            body: "Crie `Remediate-SMBSigningRequired.ps1`:",
+            code: [
+              "$serverPath = \"HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Services\\\\LanmanServer\\\\Parameters\"",
+              "$clientPath = \"HKLM:\\\\SYSTEM\\\\CurrentControlSet\\\\Services\\\\LanmanWorkstation\\\\Parameters\"",
+              "",
+              "Set-ItemProperty -Path $serverPath -Name \"RequireSecuritySignature\" -Value 1 -Type DWord -Force",
+              "Set-ItemProperty -Path $serverPath -Name \"EnableSecuritySignature\" -Value 1 -Type DWord -Force",
+              "Set-ItemProperty -Path $clientPath -Name \"RequireSecuritySignature\" -Value 1 -Type DWord -Force",
+              "Set-ItemProperty -Path $clientPath -Name \"EnableSecuritySignature\" -Value 1 -Type DWord -Force",
+              "",
+              "Write-Output \"SMB signing configurado como obrigatorio (server e client)\""
+            ].join("\n"),
+            lang: "powershell",
+          },
+          {
+            title: "Deploy no Intune",
+            body: "**Devices → Scripts and remediations → Remediations → Create**\n\n- Detection script: `Detect-SMBSigningRequired.ps1`\n- Remediation script: `Remediate-SMBSigningRequired.ps1`\n- Run as: **System (64-bit)**\n- Schedule: **Every 1 day**\n\nAtribua primeiro a um grupo piloto e monitore falhas de conexão SMB no service desk antes de expandir.",
+          },
+        ],
+      },
+    ],
+  },
+
 };
 
 /* Retorna o conteúdo KB para uma recomendação, ou null se não houver */
