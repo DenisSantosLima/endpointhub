@@ -247,6 +247,21 @@ function parseLog(text, forcedFormat, lang) {
    LE/BE); sem BOM, testa UTF-8, UTF-16LE e Windows-1252 e escolhe o
    que produzir menos caracteres inválidos (�) — comum em logs
    gerados por PowerShell (Out-File é UTF-16LE por padrão). */
+/* Julga se um texto decodificado "faz sentido" como texto latino legível.
+   Penaliza caracteres de substituição (decodificação inválida) e qualquer
+   caractere fora da faixa ASCII/Latin comum — isso pega o caso em que uma
+   decodificação errada (ex: interpretar Windows-1252 como UTF-16LE) não
+   gera erro técnico, mas produz só lixo (ideogramas, símbolos soltos). */
+function plausibilityPenalty(str) {
+  let bad = 0;
+  for (const ch of str) {
+    const cp = ch.codePointAt(0);
+    if (cp === 0xFFFD) { bad += 50; continue; }
+    const ok = (cp >= 0x20 && cp <= 0x7E) || cp === 9 || cp === 10 || cp === 13 || (cp >= 0xA0 && cp <= 0x24F);
+    if (!ok) bad += 1;
+  }
+  return bad;
+}
 function detectAndDecode(buffer) {
   const bytes = new Uint8Array(buffer);
   if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
@@ -258,17 +273,18 @@ function detectAndDecode(buffer) {
   if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
     return new TextDecoder("utf-16be").decode(bytes.slice(2));
   }
-  const candidates = ["utf-8", "utf-16le", "windows-1252"];
-  let best = null, bestScore = Infinity;
+  const sample = bytes.length > 20000 ? bytes.slice(0, 20000) : bytes;
+  const candidates = ["utf-8", "utf-16le", "utf-16be", "windows-1252"];
+  let bestEnc = "utf-8", bestScore = Infinity;
   for (const enc of candidates) {
     try {
-      const decoded = new TextDecoder(enc, { fatal: false }).decode(bytes);
-      const bad = (decoded.match(/\uFFFD/g) || []).length;
-      if (bad < bestScore) { bestScore = bad; best = decoded; }
-      if (bad === 0) break;
+      const text = new TextDecoder(enc, { fatal: false }).decode(sample);
+      const score = plausibilityPenalty(text);
+      if (score < bestScore) { bestScore = score; bestEnc = enc; }
     } catch { /* encoding não suportado pelo navegador, ignora */ }
   }
-  return best ?? new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  try { return new TextDecoder(bestEnc, { fatal: false }).decode(bytes); }
+  catch { return new TextDecoder("utf-8", { fatal: false }).decode(bytes); }
 }
 
 /* ---------- i18n ---------- */
