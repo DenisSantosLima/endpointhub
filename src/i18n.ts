@@ -91,6 +91,8 @@ export const ui = {
     't.analytics.desc': 'Painel de análise do Intune: dispositivos, conformidade, configuração, sistemas operacionais, aplicativos e Windows Update. A partir do export de dispositivos.',
     't.advisor.nome': 'Security Advisor',
     't.advisor.desc': 'Recomendações e vulnerabilidades do Microsoft Defender. Priorize por impacto, identifique CVEs com exploit e saiba onde agir.',
+    't.loganalyser.nome': 'Log Analyser',
+    't.loganalyser.desc': 'Leia logs do Intune (CMTrace), Windows Event Viewer ou Defender/MDE. Erros e avisos destacados automaticamente, com causa provável e correção para códigos conhecidos.',
   },
   en: {
     'nav.inicio': 'Home',
@@ -172,6 +174,8 @@ export const ui = {
     't.scripts.desc': 'From the CSVs, generates offboarding commands (Intune Retire+Delete, MDE offboard, Entra object deletion) via Graph/MDE.',
     't.analytics.nome': 'Endpoint Analytics',
     't.analytics.desc': 'Intune analytics dashboard: devices, compliance, configuration, operating systems, applications and Windows Update. Built from the device export.',
+    't.loganalyser.nome': 'Log Analyser',
+    't.loganalyser.desc': 'Read Intune (CMTrace), Windows Event Viewer, or Defender/MDE logs. Errors and warnings highlighted automatically, with likely cause and fix for known error codes.',
     't.advisor.nome': 'Security Advisor',
     't.advisor.desc': 'Microsoft Defender recommendations and vulnerabilities. Prioritize by impact, identify CVEs with exploits and know exactly where to act.',
   },
@@ -261,6 +265,8 @@ export const ui = {
     't.analytics.desc': 'Panel de análisis de Intune: dispositivos, cumplimiento, configuración, sistemas operativos, aplicaciones y Windows Update. A partir del export de dispositivos.',
     't.advisor.nome': 'Security Advisor',
     't.advisor.desc': 'Recomendaciones y vulnerabilidades de Microsoft Defender. Prioriza por impacto, identifica CVEs con exploit y sabe exactamente dónde actuar.',
+    't.loganalyser.nome': 'Log Analyser',
+    't.loganalyser.desc': 'Lee logs de Intune (CMTrace), Windows Event Viewer o Defender/MDE. Errores y avisos destacados automáticamente, con causa probable y corrección para códigos conocidos.',
   },
 } as const;
 

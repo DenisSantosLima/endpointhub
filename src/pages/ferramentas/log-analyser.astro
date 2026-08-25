@@ -1,0 +1,12 @@
+---
+import Base from '../../layouts/Base.astro';
+import LogAnalyser from '../../components/LogAnalyser.jsx';
+---
+<Base titulo="Log Analyser" wide={true} descricao="Leia logs do Intune, Windows Event Viewer ou Defender/MDE — erros e avisos destacados, com explicação de códigos conhecidos.">
+  <!--
+    Assim como o Dashboard de Saneamento, o Log Analyser processa
+    conteúdo enviado pelo usuário (upload/paste) sem SSR, então
+    usa client:only="react" para hidratar só no navegador.
+  -->
+  <LogAnalyser client:only="react" lang="pt" />
+</Base>

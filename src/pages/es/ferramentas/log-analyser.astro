@@ -1,0 +1,9 @@
+---
+import Base from '../../../layouts/Base.astro';
+import LogAnalyser from '../../../components/LogAnalyser.jsx';
+import { useTranslations } from '../../../i18n';
+const t = useTranslations('es');
+---
+<Base titulo={t('t.loganalyser.nome')} wide={true} descricao={t('t.loganalyser.desc')}>
+  <LogAnalyser client:only="react" lang="es" />
+</Base>
