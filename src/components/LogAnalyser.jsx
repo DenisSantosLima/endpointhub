@@ -152,28 +152,123 @@ function classifyGenericLine(line) {
   if (/\b(warn(ing)?|aviso|advertencia)\b/i.test(line)) return "warning";
   return "info";
 }
-function parseGeneric(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
-  return lines.slice(0, MAX_ROWS).map((line, i) => ({
-    id: i,
-    time: "—",
-    source: "—",
-    severity: classifyGenericLine(line),
-    message: line.trim(),
-    code: extractErrorCode(line),
-  }));
+
+/* Extrai um timestamp no início da linha (ISO 8601 com ou sem offset/
+   fração de segundos, formato US, ou entre colchetes) e devolve o
+   restante da linha sem ele. */
+const TS_REGEXES = [
+  /^\[?(\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\]?/,
+  /^\[?(\d{2}\/\d{2}\/\d{4}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]?/,
+];
+function extractTimestamp(line) {
+  for (const re of TS_REGEXES) {
+    const m = line.match(re);
+    if (m) return { raw: m[1], rest: line.slice(m[0].length).trim() };
+  }
+  return { raw: null, rest: line };
+}
+/* Reformata o timestamp de forma legível SEM converter fuso horário —
+   o horário mostrado é sempre o mesmo horário de parede registrado no log. */
+function formatTimestamp(raw, lang) {
+  if (!raw) return "—";
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/);
+  if (iso) {
+    const [, y, mo, d, h, mi, s, off] = iso;
+    const offLabel = off ? (off === "Z" ? " UTC" : ` UTC${off}`) : "";
+    return lang === "en" ? `${y}-${mo}-${d} ${h}:${mi}:${s}${offLabel}` : `${d}/${mo}/${y} ${h}:${mi}:${s}${offLabel}`;
+  }
+  const us = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})[T\s](\d{2}):(\d{2}):(\d{2})/);
+  if (us) {
+    const [, mo, d, y, h, mi, s] = us;
+    return lang === "en" ? `${y}-${mo}-${d} ${h}:${mi}:${s}` : `${d}/${mo}/${y} ${h}:${mi}:${s}`;
+  }
+  return raw;
+}
+/* Extrai um nível de log no início da linha: "[INFO]", "ERROR:", etc. */
+function extractLevel(line) {
+  let m = line.match(/^\[(INFO|INFORMATION|WARN(?:ING)?|ERROR|ERRO|DEBUG|CRITICAL|CR[IÍ]TICO|FATAL|TRACE|AVISO)\]/i);
+  if (m) return { level: m[1].toUpperCase(), rest: line.slice(m[0].length).trim() };
+  m = line.match(/^(INFO|WARN(?:ING)?|ERROR|DEBUG|CRITICAL|FATAL|TRACE)\b[:\s-]*/i);
+  if (m) return { level: m[1].toUpperCase(), rest: line.slice(m[0].length).trim() };
+  return { level: null, rest: line };
+}
+function classifyLevel(level) {
+  if (!level) return null;
+  if (["ERROR", "ERRO", "FATAL"].includes(level)) return "error";
+  if (level === "CRITICAL" || level === "CRÍTICO") return "critical";
+  if (level.startsWith("WARN") || level === "AVISO") return "warning";
+  return "info";
+}
+/* Extrai até 2 tags entre colchetes logo após o nível — ex: [Machine] [BUSCA] */
+function extractTag(line) {
+  const m = line.match(/^\[([^\]]+)\]/);
+  if (m) return { tag: m[1], rest: line.slice(m[0].length).trim() };
+  return { tag: null, rest: line };
 }
 
-function parseLog(text, forcedFormat) {
+function parseGeneric(text, lang) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+  return lines.slice(0, MAX_ROWS).map((raw, i) => {
+    const line = raw.trim();
+    const { raw: ts, rest: r1 } = extractTimestamp(line);
+    const { level, rest: r2 } = extractLevel(r1);
+    let rest = r2, tags = [];
+    for (let k = 0; k < 2; k++) {
+      const { tag, rest: r3 } = extractTag(rest);
+      if (tag) { tags.push(tag); rest = r3; } else break;
+    }
+    const message = rest || line;
+    return {
+      id: i,
+      time: formatTimestamp(ts, lang),
+      source: tags.length ? tags.join(" / ") : "—",
+      severity: classifyLevel(level) || classifyGenericLine(line),
+      message,
+      code: extractErrorCode(line),
+    };
+  });
+}
+
+function parseLog(text, forcedFormat, lang) {
   if (!text || !text.trim()) return { format: null, rows: [] };
   const format = forcedFormat && forcedFormat !== "auto" ? forcedFormat : detectFormat(text);
   let rows = [];
   if (format === "cmtrace") rows = parseCMTrace(text);
   else if (format === "eventviewer") rows = parseEventViewerCSV(text);
   else if (format === "defender") rows = parseDefenderCSV(text);
-  else rows = parseGeneric(text);
-  if (format === "cmtrace" && rows.length === 0) rows = parseGeneric(text); // fallback se regex não casar
+  else rows = parseGeneric(text, lang);
+  if (format === "cmtrace" && rows.length === 0) rows = parseGeneric(text, lang); // fallback se regex não casar
   return { format, rows: rows.slice(0, MAX_ROWS) };
+}
+
+/* ---------- Detecção de encoding do arquivo ---------- */
+/* Lê o arquivo como bytes e decodifica corretamente mesmo sem o
+   navegador saber o encoding de antemão. Detecta BOM (UTF-8/UTF-16
+   LE/BE); sem BOM, testa UTF-8, UTF-16LE e Windows-1252 e escolhe o
+   que produzir menos caracteres inválidos (�) — comum em logs
+   gerados por PowerShell (Out-File é UTF-16LE por padrão). */
+function detectAndDecode(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+    return new TextDecoder("utf-8").decode(bytes.slice(3));
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+    return new TextDecoder("utf-16le").decode(bytes.slice(2));
+  }
+  if (bytes.length >= 2 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+    return new TextDecoder("utf-16be").decode(bytes.slice(2));
+  }
+  const candidates = ["utf-8", "utf-16le", "windows-1252"];
+  let best = null, bestScore = Infinity;
+  for (const enc of candidates) {
+    try {
+      const decoded = new TextDecoder(enc, { fatal: false }).decode(bytes);
+      const bad = (decoded.match(/\uFFFD/g) || []).length;
+      if (bad < bestScore) { bestScore = bad; best = decoded; }
+      if (bad === 0) break;
+    } catch { /* encoding não suportado pelo navegador, ignora */ }
+  }
+  return best ?? new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
 /* ---------- i18n ---------- */
@@ -353,14 +448,18 @@ export default function LogAnalyser({ lang = "pt" }) {
     const file = files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => { setRawText(String(e.target.result || "")); setFileName(file.name); };
-    reader.readAsText(file, "UTF-8");
+    reader.onload = (e) => {
+      const text = detectAndDecode(e.target.result);
+      setRawText(text);
+      setFileName(file.name);
+    };
+    reader.readAsArrayBuffer(file);
   }, []);
 
   const onDrop = useCallback((e) => { e.preventDefault(); setDrag(false); ingest(e.dataTransfer.files); }, [ingest]);
   const onBrowse = useCallback((e) => { ingest(e.target.files); }, [ingest]);
 
-  const parsed = useMemo(() => parseLog(rawText, forcedFormat), [rawText, forcedFormat]);
+  const parsed = useMemo(() => parseLog(rawText, forcedFormat, lang), [rawText, forcedFormat, lang]);
 
   const counts = useMemo(() => {
     const c = { critical: 0, error: 0, warning: 0, info: 0 };
